@@ -3,6 +3,8 @@
 *.pyc
 *.ipynb
 
+*DS_Store*
+
 *egg*
 *log*
 .local
