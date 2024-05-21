@@ -98,11 +98,11 @@ class LookupFreeQuantization(nn.Module):
         
         # Reconstruct the input tensor from the quantized values
         out = self.proj_out(code)
-        out = unpack([out], ps, 'b * d')
+        out = unpack([out], ps, 'b * d')[0]
         out = rearrange(out, 'b ... d -> b d ...')
         
         # NOTE: Squeeze to remove the n_codebook dimension
-        idxs = unpack([idxs], ps, 'b * d').squeeze()
+        idxs = unpack([idxs], ps, 'b * d')[0].squeeze()
         
         # No need to compute the loss if we are not training
         if not self.training: return (out, idxs), None
