@@ -1,0 +1,4 @@
+einops==0.8.0
+lightning==2.2.4
+setuptools==69.5.1
+torch==2.3.0
