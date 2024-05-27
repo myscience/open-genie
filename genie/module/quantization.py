@@ -69,22 +69,23 @@ class LookupFreeQuantization(nn.Module):
         self.register_buffer('bit_mask', 2 ** torch.arange(d_codebook - 1, -1, -1))
         
         codes = torch.arange(2 ** d_codebook, dtype=int)[:, None] & self.bit_mask
-        self.register_buffer('codebook', 2 * (codes != 0) - 1, persistent=False)
+        self.register_buffer('codebook', 2 * (codes != 0).float() - 1, persistent=False)
         
     def forward(
         self,
         inp : Tensor,
         beta : float = 100.,
+        transpose : bool = False
     ) -> Tuple[Tuple[Tensor, Tensor], Tensor | None]:
         
         # Standardize the input tensor to have shape (batch_size, seq_len, inp_dim)
-        inp = rearrange(inp, 'b d ... -> b ... d')
+        inp = rearrange(inp, 'b d ... -> b ... d') if transpose else inp
         inp, ps = pack([inp], 'b * d')
         
         inp = self.proj_inp(inp)
         
         # Split into n_codebook parts
-        inp = rearrange(inp, 'b n (c d) -> b n c d', n=self.n_codebook)
+        inp = rearrange(inp, 'b n (c d) -> b n c d', c=self.n_codebook)
         
         # Quantize by simply assigning {-1, 1} to the input tensor depending on the sign
         # of the input tensor values. This is the lookup-free quantization step.
@@ -95,24 +96,26 @@ class LookupFreeQuantization(nn.Module):
         
         # Use straight-through estimator to back-propagate through the quantization step
         code = (inp + (quant - inp).detach()) if self.training else quant
+        code = rearrange(code, 'b n c d -> b n (c d)')
         
         # Reconstruct the input tensor from the quantized values
         out = self.proj_out(code)
-        out = unpack([out], ps, 'b * d')[0]
-        out = rearrange(out, 'b ... d -> b d ...')
+        out = unpack(out, ps, 'b * d')[0]
+        out = rearrange(out, 'b ... d -> b d ...') if transpose else out
         
         # NOTE: Squeeze to remove the n_codebook dimension
-        idxs = unpack([idxs], ps, 'b * d')[0].squeeze()
+        idxs = unpack(idxs, ps, 'b * d')[0].squeeze()
+        idxs = rearrange(idxs, 'b ... d -> b d ...') if transpose else idxs
         
         # No need to compute the loss if we are not training
         if not self.training: return (out, idxs), None
         
         # Compute the entropy loss
-        inp_prob = 2 * einsum('... i d, j d -> ... i j', inp, self.codebook)
+        inp_prob = 2 * einsum(inp, self.codebook, '... i d, j d -> ... i j')
         inp_prob = (inp_prob * beta).softmax(dim=-1)
         inp_prob = rearrange(inp_prob, 'b n ... -> (b n) ...')
         
-        avg_prob = reduce(inp_prob, '...c d -> c d', 'mean')
+        avg_prob = reduce(inp_prob, '... c d -> c d', 'mean')
         
         inp_ent = entropy(inp_prob).mean()
         avg_ent = entropy(avg_prob).mean()
@@ -120,7 +123,7 @@ class LookupFreeQuantization(nn.Module):
         entropy_loss = inp_ent + self.diversity_weight * avg_ent
         
         # Compute commitment loss
-        commit_loss = mse_loss(inp, quant.detach(), reduction = 'none')
+        commit_loss = mse_loss(inp, quant.detach(), reduction = 'mean')
         
         # Compute the complete final loss
         loss = entropy_loss * self.entropy_weight + commit_loss * self.commit_weight
