@@ -74,6 +74,9 @@ class CausalConv3d(nn.Module):
             dilation=(t_dilation, *s_dilation),
             **kwargs
         )
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
 
     def forward(self, inp: Tensor) -> Tensor:
         """
@@ -90,6 +93,14 @@ class CausalConv3d(nn.Module):
         inp = self.causal_pad(inp)
 
         return self.conv3d(inp)
+    
+    @property
+    def inp_dim(self) -> int:
+        return self.in_channels
+    
+    @property
+    def out_dim(self) -> int:
+        return self.out_channels
     
 class CausalConvTranspose3d(nn.ConvTranspose3d):
     """
@@ -134,6 +145,9 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
             padding=(0, height_ker // 2, width_ker // 2),
             **kwargs,
         )
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
 
     def forward(self, inp: Tensor) -> Tensor:
         """
@@ -150,6 +164,14 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
         T, H, W = self.stride
 
         return super().forward(inp)[..., :t * T, :h * H, :w * W]
+    
+    @property
+    def inp_dim(self) -> int:
+        return self.in_channels
+    
+    @property
+    def out_dim(self) -> int:
+        return self.out_channels
     
 class SpaceUpsample(nn.Module):
     '''Depth to Space Upsampling module.
@@ -168,6 +190,8 @@ class SpaceUpsample(nn.Module):
             Rearrange('b (c p q) -> b c (h p) (w q)', p=factor, q=factor),
         )
         
+        self.in_dim = in_dim
+        
     def forward(
         self,
         inp : Tensor
@@ -185,6 +209,14 @@ class SpaceUpsample(nn.Module):
         
         return out
     
+    @property
+    def inp_dim(self) -> int:
+        return self.in_dim
+    
+    @property
+    def out_dim(self) -> int:
+        return self.in_dim
+    
 class TimeUpsample(nn.Module):
     '''Depth to Time Upsampling module.
     '''
@@ -200,6 +232,8 @@ class TimeUpsample(nn.Module):
             nn.Conv1d(in_dim, in_dim * factor, kernel_size=1),
             Rearrange('b (c f) t -> b c (t f)', f=factor),
         )
+        
+        self.in_dim = in_dim
         
     def forward(
         self,
@@ -217,6 +251,14 @@ class TimeUpsample(nn.Module):
         out = rearrange(out, 'b h w c t -> b c t h w')
         
         return out
+    
+    @property
+    def inp_dim(self) -> int:
+        return self.in_dim
+    
+    @property
+    def out_dim(self) -> int:
+        return self.in_dim
 
 class SpaceTimeDownsample(CausalConv3d):
     '''Space-Time Downsample module.
@@ -236,7 +278,7 @@ class SpaceTimeDownsample(CausalConv3d):
             stride=(time_factor, space_factor, space_factor),
             **kwargs,
         )
-        
+
 class SpaceTimeUpsample(CausalConvTranspose3d):
     '''Space-Time Upsample module.
     '''
@@ -305,6 +347,9 @@ class ResidualBlock(nn.Module):
             )
         )
         
+        self.inp_channel = inp_channel
+        self.out_channel = out_channel
+        
     def forward(
         self,
         inp : Tensor
@@ -319,3 +364,11 @@ class ResidualBlock(nn.Module):
             Tensor: The output tensor after applying the residual block operations.
         """
         return self.main(inp) + self.res(inp)
+    
+    @property
+    def inp_dim(self) -> int:
+        return self.inp_channel
+    
+    @property
+    def out_dim(self) -> int:
+        return self.out_channel
