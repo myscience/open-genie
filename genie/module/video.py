@@ -37,10 +37,11 @@ class CausalConv3d(nn.Module):
         kernel_size: int | Tuple[int, int, int],
         stride: int | Tuple[int, int, int] = (1, 1, 1),
         dilation: int | Tuple[int, int, int] = (1, 1, 1),
+        space_pad : int | Tuple[int, int] | None = None,
         pad_mode: str = 'constant',
         **kwargs
     ):
-        super(self).__init__()
+        super().__init__()
 
         if isinstance(stride, int):
             stride = (stride, stride, stride)
@@ -48,6 +49,8 @@ class CausalConv3d(nn.Module):
             dilation = (dilation, dilation, dilation)
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size, kernel_size)
+        if isinstance(space_pad, int | None):
+            space_pad = (space_pad, space_pad)
 
         t_stride, *s_stride = stride
         t_dilation, *s_dilation = dilation
@@ -56,8 +59,8 @@ class CausalConv3d(nn.Module):
 
         time_ker, height_ker, width_ker = kernel_size
         time_pad = (time_ker - 1) * t_dilation + (1 - t_stride)
-        height_pad = height_ker // 2
-        width_pad = width_ker // 2
+        height_pad = default(space_pad[0], height_ker // 2)
+        width_pad  = default(space_pad[1], width_ker  // 2)
 
         # Causal padding pads time only to the left to ensure causality
         self.causal_pad = partial(
@@ -124,8 +127,9 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
         in_channels: int,
         out_channels: int,
         kernel_size: int | Tuple[int, int, int],
-        stride: int | Tuple[int, int, int] = (1, 1, 1),
+        stride  : int | Tuple[int, int, int] = (1, 1, 1),
         dilation: int | Tuple[int, int, int] = (1, 1, 1),
+        space_pad : int | Tuple[int, int] | None = None,
         **kwargs,
     ) -> None:
         if isinstance(stride, int):
@@ -134,15 +138,20 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
             dilation = (dilation, dilation, dilation)
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size, kernel_size)
+        if isinstance(space_pad, int | None):
+            space_pad = (space_pad, space_pad)
         _, height_ker, width_ker = kernel_size
+        
+        height_pad = default(space_pad[0], height_ker // 2)
+        width_pad  = default(space_pad[1], width_ker  // 2)
 
-        super(CausalConv3d, self).__init__(
+        super(CausalConvTranspose3d, self).__init__(
             in_channels,
             out_channels,
             kernel_size,
             stride=stride,
             dilation=dilation,
-            padding=(0, height_ker // 2, width_ker // 2),
+            padding=(0, height_pad, width_pad),
             **kwargs,
         )
         
@@ -181,13 +190,12 @@ class SpaceUpsample(nn.Module):
         self,
         in_dim : int, 
         factor : int = 2,
-        kernel_size : int = 3,
     ) -> None:
         super().__init__()
     
         self.go_up = nn.Sequential(
-            CausalConv3d(in_dim, in_dim * factor ** 2, kernel_size=kernel_size),
-            Rearrange('b (c p q) -> b c (h p) (w q)', p=factor, q=factor),
+            nn.Conv2d(in_dim, in_dim * factor ** 2, kernel_size=1),
+            Rearrange('b (c p q) h w -> b c (h p) (w q)', p=factor, q=factor),
         )
         
         self.in_dim = in_dim
@@ -204,7 +212,7 @@ class SpaceUpsample(nn.Module):
         out = self.go_up(inp)
         
         # Restore video format
-        out, _ = unpack(out, ps, '* c h w')
+        out, *_ = unpack(out, ps, '* c h w')
         out = rearrange(out, 'b t c h w -> b c t h w')
         
         return out
@@ -241,13 +249,13 @@ class TimeUpsample(nn.Module):
     ) -> Tensor:
         # Input is expected to be a video, rearrange it to have
         # shape suitable for a Conv2d layer to operate on
-        inp = rearrange(inp, 'b c t h w -> b c h w t')
+        inp = rearrange(inp, 'b c t h w -> b h w c t')
         inp, ps = pack([inp], '* c t')
         
         out = self.go_up(inp)
         
         # Restore video format
-        out, _ = unpack(out, ps, '* c t')
+        out, *_ = unpack(out, ps, '* c t')
         out = rearrange(out, 'b h w c t -> b c t h w')
         
         return out
@@ -276,6 +284,8 @@ class SpaceTimeDownsample(CausalConv3d):
             in_dim,
             out_dim,
             stride=(time_factor, space_factor, space_factor),
+            kernel_size = (time_factor, space_factor, space_factor),
+            space_pad=0,
             **kwargs,
         )
 
@@ -295,6 +305,8 @@ class SpaceTimeUpsample(CausalConvTranspose3d):
             in_dim,
             out_dim,
             stride=(time_factor, space_factor, space_factor),
+            kernel_size = (time_factor, space_factor, space_factor),
+            space_pad=0,
             **kwargs,
         )
 
