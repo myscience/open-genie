@@ -87,7 +87,7 @@ class SpatialAttention(SelfAttention):
     '''
     Attention module that applies self-attention across the
     spatial dimensions of the input tensor, expected to be
-    a 5D tensor of shape (batch, feat, time, height, width).
+    either an image (4D tensor) or a video (5D tensor).
     '''
     
     def forward(
@@ -95,12 +95,18 @@ class SpatialAttention(SelfAttention):
         video : Tensor,
         mask: Tensor | None = None
     ) -> Tensor:
-        b, c, t, h, w = video.shape
+        b, *_, h, w = video.shape
         
-        inp = rearrange(video, 'b c t h w -> (b t) (h w) c')
+        inp = rearrange(video, 'b c ... h w -> b ... h w c')
+        inp, t_ps = pack([inp], '* h w c')
+        inp, s_ps = pack([inp], 'b * c')
+        
         out = super().forward(inp, mask)
         
-        return rearrange(out, '(b t) (h w) c -> b c t h w', b=b, t=t, h=h, w=w)
+        out = unpack(out, s_ps, 'b * c')
+        out = unpack(out, t_ps, '* h w c')
+        
+        return rearrange(out, 'b ... h w c -> b c ... h w', b=b, h=h, w=w)
 
 class TemporalAttention(SelfAttention):
     '''
@@ -114,7 +120,7 @@ class TemporalAttention(SelfAttention):
         video : Tensor,
         mask : Tensor | None = None
     ) -> Tensor:
-        b, c, t, h, w = video.shape
+        b, *_, h, w = video.shape
         
         inp = rearrange(video, 'b c t h w -> (b h w) t c')
         out = super().forward(inp, mask)
