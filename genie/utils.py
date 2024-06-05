@@ -25,6 +25,36 @@ def enlarge_as(src : Tensor, other : Tensor) -> Tensor:
     '''
     return rearrange(src, f'... -> ...{" 1" * (other.dim() - src.dim())}').contiguous()
 
+def pick_frames(
+    video : Tensor,
+    frames_idxs : Tensor | None = None,
+    frames_per_batch : int | None = None,
+) -> Tensor:
+    '''
+        Randomly pick a subset of frames from the input video
+        tensor. The number of frames to pick is determined by
+        the `frames_per_batch` parameter.
+    '''
+    assert exists(frames_idxs) ^ exists(frames_per_batch), 'Either `frames_idxs` or `frames_per_batch` must be provided.'
+    
+    b, c, t, h, w = video.shape
+    
+    # Randomly sample the indices of the frames to pick
+    frame_idxs = default(frames_idxs, torch.cat([
+            torch.randint(0, t, frames_per_batch, device=video.device)
+            for _ in range(b)]
+        )
+    )
+    
+    batch_idxs = torch.repeat_interleave(
+        torch.arange(b, device=video.device),
+        default(frames_per_batch, frame_idxs.size // b)
+    )
+    
+    frames = video[batch_idxs, :, frame_idxs, ...]
+    
+    return rearrange(frames, 'b c f h w -> (b f) c h w').contiguous()
+    
 def default_iterdata_worker_init(worker_id : int) -> None:
     torch.manual_seed(torch.initial_seed() + worker_id)
     worker_info = get_worker_info()
