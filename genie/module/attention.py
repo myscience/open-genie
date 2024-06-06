@@ -103,8 +103,8 @@ class SpatialAttention(SelfAttention):
         
         out = super().forward(inp, mask)
         
-        out = unpack(out, s_ps, 'b * c')
-        out = unpack(out, t_ps, '* h w c')
+        out = unpack(out, s_ps, 'b * c')[0]
+        out = unpack(out, t_ps, '* h w c')[0]
         
         return rearrange(out, 'b ... h w c -> b c ... h w', b=b, h=h, w=w)
 
