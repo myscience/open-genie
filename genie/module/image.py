@@ -111,9 +111,16 @@ class FrameDiscriminator(nn.Module):
             frame_size = (frame_size, frame_size)
             
         # Assemble model core based on dimension schematics
-        dims = [inp_channels] + [model_dim * mult for mult in dim_mults]
+        dims = [model_dim * mult for mult in dim_mults]
         
-        assert len(dims) - 1 == len(down_step), "Dimension and downsample steps must match."
+        assert len(dims) == len(down_step), "Dimension and downsample steps must match."
+        
+        self.proj_in = nn.Conv2d(
+            inp_channels,
+            model_dim,
+            kernel_size=3,
+            padding=1,
+        )
         
         self.core = nn.ModuleList([])
         
@@ -165,7 +172,7 @@ class FrameDiscriminator(nn.Module):
         image : Tensor,
     ) -> Tensor:
         
-        out = image
+        out = self.proj_in(image)
         
         for res, (attn, ff) in self.core:
             # Apply residual block
