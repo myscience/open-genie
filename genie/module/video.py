@@ -59,8 +59,8 @@ class CausalConv3d(nn.Module):
 
         time_ker, height_ker, width_ker = kernel_size
         time_pad = (time_ker - 1) * t_dilation + (1 - t_stride)
-        height_pad = default(space_pad[0], height_ker // 2)
-        width_pad  = default(space_pad[1], width_ker  // 2)
+        height_pad = default(space_pad[0], (height_ker - 1) // 2)
+        width_pad  = default(space_pad[1], (width_ker  - 1)  // 2)
 
         # Causal padding pads time only to the left to ensure causality
         self.causal_pad = partial(
@@ -182,23 +182,27 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
     def out_dim(self) -> int:
         return self.out_channels
     
-class SpaceUpsample(nn.Module):
+class DepthToSpaceUpsample(nn.Module):
     '''Depth to Space Upsampling module.
     '''
     
     def __init__(
         self,
-        in_dim : int, 
+        in_channels : int, 
+        out_channels : int | None = None,
         factor : int = 2,
     ) -> None:
         super().__init__()
+        
+        out_channels = default(out_channels, in_channels)
     
         self.go_up = nn.Sequential(
-            nn.Conv2d(in_dim, in_dim * factor ** 2, kernel_size=1),
+            nn.Conv2d(in_channels, out_channels * factor ** 2, kernel_size=1),
             Rearrange('b (c p q) h w -> b c (h p) (w q)', p=factor, q=factor),
         )
         
-        self.in_dim = in_dim
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         
     def forward(
         self,
@@ -219,29 +223,33 @@ class SpaceUpsample(nn.Module):
     
     @property
     def inp_dim(self) -> int:
-        return self.in_dim
+        return self.in_channels
     
     @property
     def out_dim(self) -> int:
-        return self.in_dim
+        return self.out_channels
     
-class TimeUpsample(nn.Module):
+class DepthToTimeUpsample(nn.Module):
     '''Depth to Time Upsampling module.
     '''
     
     def __init__(
         self,
-        in_dim : int, 
+        in_channels : int, 
+        out_channels : int | None = None,
         factor : int = 2,
     ) -> None:
         super().__init__()
+        
+        out_channels = default(out_channels, in_channels)
     
         self.go_up = nn.Sequential(
-            nn.Conv1d(in_dim, in_dim * factor, kernel_size=1),
+            nn.Conv1d(in_channels, out_channels * factor, kernel_size=1),
             Rearrange('b (c f) t -> b c (t f)', f=factor),
         )
         
-        self.in_dim = in_dim
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         
     def forward(
         self,
@@ -262,11 +270,60 @@ class TimeUpsample(nn.Module):
     
     @property
     def inp_dim(self) -> int:
-        return self.in_dim
+        return self.in_channels
     
     @property
     def out_dim(self) -> int:
-        return self.in_dim
+        return self.out_channels
+
+class DepthToSpaceTimeUpsample(nn.Module):
+    '''Depth to Space-Time Upsample
+    '''
+    def __init__(
+        self,
+        in_channels : int,
+        out_channels : int | None = None, 
+        time_factor  : int = 2,
+        space_factor : int = 2,
+        kernel_size : int | Tuple[int, int, int] = 1,
+    ) -> None:
+        super().__init__()
+        
+        out_channels = default(out_channels, in_channels)
+    
+        self.go_up = nn.Sequential(
+            CausalConv3d(
+                in_channels,
+                out_channels * time_factor * space_factor ** 2,
+                kernel_size=kernel_size,
+            ),
+            Rearrange(
+                'b (c p q r) t h w -> b c (t p) (h q) (w r)',
+                p=time_factor,
+                q=space_factor,
+                r=space_factor
+            ),
+        )
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        
+    def forward(
+        self,
+        inp : Tensor
+    ) -> Tensor:
+        # Input is expected to be a video
+        out = self.go_up(inp)
+        
+        return out
+    
+    @property
+    def inp_dim(self) -> int:
+        return self.in_channels
+    
+    @property
+    def out_dim(self) -> int:
+        return self.out_channels
 
 class SpaceTimeDownsample(CausalConv3d):
     '''Space-Time Downsample module.
@@ -274,18 +331,18 @@ class SpaceTimeDownsample(CausalConv3d):
     
     def __init__(
         self,
-        in_dim : int,
-        out_dim : int,
+        in_channels : int,
+        out_channels : int,
         time_factor : int = 2,
         space_factor : int = 2,
         **kwargs
     ) -> None:
+        kernel_size = kwargs.pop('kernel_size', (time_factor, space_factor, space_factor))
         super().__init__(
-            in_dim,
-            out_dim,
-            stride=(time_factor, space_factor, space_factor),
-            kernel_size = (time_factor, space_factor, space_factor),
-            space_pad=0,
+            in_channels,
+            out_channels,
+            stride = (time_factor, space_factor, space_factor),
+            kernel_size = kernel_size,
             **kwargs,
         )
 
@@ -310,6 +367,7 @@ class SpaceTimeUpsample(CausalConvTranspose3d):
             **kwargs,
         )
 
+
 class ResidualBlock(nn.Module):
     """
     A residual block module that performs residual connections and applies convolutional operations.
@@ -324,8 +382,8 @@ class ResidualBlock(nn.Module):
     
     def __init__(
         self,
-        inp_channel : int,
-        out_channel : int | None = None,
+        in_channels : int,
+        out_channels : int | None = None,
         kernel_size : int | Tuple[int, int, int] = 3,
         num_groups : int = 1,
         pad_mode : str = 'constant',
@@ -333,34 +391,34 @@ class ResidualBlock(nn.Module):
         super().__init__()
         
         self.res = CausalConv3d(
-            inp_channel,
-            out_channel,
+            in_channels,
+            out_channels,
             kernel_size=1
-        ) if exists(out_channel) else nn.Identity()
+        ) if exists(out_channels) else nn.Identity()
         
-        out_channel = default(out_channel, inp_channel)
+        out_channels = default(out_channels, in_channels)
         
         self.main = nn.Sequential(
-            nn.GroupNorm(num_groups, inp_channel),
+            nn.GroupNorm(num_groups, in_channels),
             nn.SiLU(),
             CausalConv3d(
-                inp_channel,
-                out_channel,
+                in_channels,
+                out_channels,
                 kernel_size=kernel_size,
                 pad_mode=pad_mode,
             ),
-            nn.GroupNorm(num_groups, out_channel),
+            nn.GroupNorm(num_groups, out_channels),
             nn.SiLU(),
             CausalConv3d(
-                out_channel,
-                out_channel,
+                out_channels,
+                out_channels,
                 kernel_size=kernel_size,
                 pad_mode=pad_mode,
             )
         )
         
-        self.inp_channel = inp_channel
-        self.out_channel = out_channel
+        self.inp_channels = in_channels
+        self.out_channels = out_channels
         
     def forward(
         self,
@@ -379,8 +437,8 @@ class ResidualBlock(nn.Module):
     
     @property
     def inp_dim(self) -> int:
-        return self.inp_channel
+        return self.inp_channels
     
     @property
     def out_dim(self) -> int:
-        return self.out_channel
+        return self.out_channels

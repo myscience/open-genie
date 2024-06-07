@@ -2,8 +2,8 @@ import unittest
 import torch
 from genie.module.video import CausalConv3d
 from genie.module.video import CausalConvTranspose3d
-from genie.module.video import SpaceUpsample
-from genie.module.video import TimeUpsample
+from genie.module.video import DepthToSpaceUpsample
+from genie.module.video import DepthToTimeUpsample
 from genie.module.video import SpaceTimeDownsample
 from genie.module.video import SpaceTimeUpsample
 from genie.module.video import ResidualBlock
@@ -37,7 +37,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_space_upsample(self):
         # Create a SpaceUpsample instance
-        upsample = SpaceUpsample(64, factor=2)
+        upsample = DepthToSpaceUpsample(64, factor=2)
         
         # Create a random input tensor
         inp = torch.randn(1, 64, 8, 16, 16)
@@ -50,7 +50,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_time_upsample(self):
         # Create a TimeUpsample instance
-        upsample = TimeUpsample(64, factor=2)
+        upsample = DepthToTimeUpsample(64, factor=2)
         
         # Create a random input tensor
         inp = torch.randn(1, 64, 8, 16, 16)
