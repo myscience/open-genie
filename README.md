@@ -8,7 +8,7 @@ The goal of the model is to introduce "[...] The first generative interactive en
 
 # Roadmap
 
-- [ ] Implement the video-tokenizer. Use the MagViT-2 tokenizer as described in [Yu et al., (2023)](https://magvit.cs.cmu.edu/v2/).
+- [x] Implement the video-tokenizer. Use the MagViT-2 tokenizer as described in [Yu et al., (2023)](https://magvit.cs.cmu.edu/v2/).
 - [ ] Implement the Latent Action Model, a Vector-Quantized ST-Transformer. Predict game-action from past video frames.
 - [ ] Implement the Dynamics Model, which takes past frames and actions and produces the new video frame.
 - [ ] Add functioning training script (Lightning).
