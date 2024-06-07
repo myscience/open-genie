@@ -41,19 +41,17 @@ def pick_frames(
     
     # Randomly sample the indices of the frames to pick
     frame_idxs = default(frames_idxs, torch.cat([
-            torch.randint(0, t, frames_per_batch, device=video.device)
+            torch.randperm(t, device=video.device)[:frames_per_batch]
             for _ in range(b)]
         )
     )
     
     batch_idxs = torch.repeat_interleave(
         torch.arange(b, device=video.device),
-        default(frames_per_batch, frame_idxs.size // b)
+        default(frames_per_batch, frame_idxs.numel() // b)
     )
     
-    frames = video[batch_idxs, :, frame_idxs, ...]
-    
-    return rearrange(frames, 'b c f h w -> (b f) c h w').contiguous()
+    return video[batch_idxs, :, frame_idxs, ...]
     
 def default_iterdata_worker_init(worker_id : int) -> None:
     torch.manual_seed(torch.initial_seed() + worker_id)
