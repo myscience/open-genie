@@ -1,4 +1,5 @@
 from itertools import pairwise
+from uuid import uuid4
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -8,6 +9,32 @@ from einops import rearrange
 from collections import defaultdict
 
 from genie.utils import default
+
+class NamingProbe:
+    
+    def __init__(self, name_attr : str = 'name') -> None:
+        super().__init__()
+        
+        self.depth = -1
+        self.name_attr = name_attr
+        
+    def __call__(
+        self,
+        module : nn.Module,
+        inp : Tuple[Tensor, ...],
+        out : Tensor
+    ) -> None:
+        '''Custom torch hook designed to record hidden activations.
+        NOTE: This function should be called (implicitly) by the
+        forward hook registered on the desired module.
+        '''
+        
+        self.depth += 1
+        
+        # Build unique module name as identifier
+        name = f'{module._get_name().lower()}_{self.depth}_{uuid4().hex[:6]}'
+        
+        setattr(module, self.name_attr, name)
 
 class RecordingProbe:
     
@@ -30,7 +57,7 @@ class RecordingProbe:
         '''
         
         # Get the name of the module
-        name = module._get_name().lower()
+        name = module.name if hasattr(module, 'name') else module._get_name().lower()
         
         feat = out.clone().detach()
         feat = rearrange(feat, 'b ... -> b (...)').contiguous()
