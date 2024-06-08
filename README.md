@@ -68,21 +68,21 @@ tokenizer = VideoTokenizer(
       # Discriminator parameters
       inp_size = (64, 64), # Size of input frames
       model_dim = 64,
-      dim_mults = (1, 2, 4), # Channel multipliers
+      dim_mults = (1, 2, 4),    # Channel multipliers
       down_step = (None, 2, 2), # Down-sampling steps
       inp_channels = 3,
       kernel_size = 3,
       num_groups = 8,
       act_fn = 'leaky', # Use LeakyReLU as activation function
-      use_blur = True, # Use BlurPooling for down-sampling
-      use_attn = True, # Discriminator can have spatial attention
-      num_heads = 4, #
-      dim_head = 32, #
+      use_blur = True,  # Use BlurPooling for down-sampling
+      use_attn = True,  # Discriminator can have spatial attention
+      num_heads = 4,    # Number of (spatial) attention heads
+      dim_head = 32,    # Dimension of each spatial attention heads
   ),
 
+  # Keyword for the LFQ module
   d_codebook = 18, # Codebook dimension, should match encoder output channels
   n_codebook = 1, # Support for multiple codebooks
-  # Keyword for the LFQ module
   lfq_bias = True,
   lfq_frac_sample = 1.,
   lfq_commit_weight = 0.25,
@@ -90,9 +90,10 @@ tokenizer = VideoTokenizer(
   lfq_diversity_weight = 1.,
   # Keyword for the different loss
   perceptual_model = 'vgg16', # We pick VGG-16 for perceptual loss
-  perc_feat_layers = ('features.6', 'features.13', 'features.18', 'features.25'), # Which layer should we record perceptual features from
-  gan_discriminate='frames', # GAN discriminator looks are frames (or entire video)
-  gan_frames_per_batch = 4, # How many frames to use extract from each video for GAN
+  # Which layer should we record perceptual features from
+  perc_feat_layers = ('features.6', 'features.13', 'features.18', 'features.25'),
+  gan_discriminate='frames', # GAN discriminator looks at individual frames
+  gan_frames_per_batch = 4,  # How many frames to extract from each video to use for GAN
   gan_loss_weight = 1.,
   perc_loss_weight = 1.,
   quant_loss_weight = 1.,
@@ -114,6 +115,16 @@ mock_video = torch.randn(
 
 # Tokenize input video
 tokens, idxs = tokenizer.tokenize(mock_video)
+
+# Tokenized video has shape:
+# (batch_size, d_codebook, num_frames // down_time, H // down_space, W // down_space)
+
+# To decode the video from tokens use:
+rec_video = tokenizer.decode(tokens)
+
+# To train the tokenizer (do many! times)
+loss, aux_losses = tokenizer(mock_video)
+loss.backward()
 ```
 
 # Roadmap
