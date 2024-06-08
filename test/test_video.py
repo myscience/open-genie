@@ -63,7 +63,13 @@ class TestVideoModule(unittest.TestCase):
         
     def test_space_time_downsample(self):
         # Create a SpaceTimeDownsample instance
-        downsample = SpaceTimeDownsample(64, 128, time_factor=2, space_factor=2)
+        downsample = SpaceTimeDownsample(
+            in_channels=64,
+            kernel_size=3,
+            out_channels=128,
+            time_factor=2,
+            space_factor=2
+        )
         
         # Create a random input tensor
         inp = torch.randn(1, 64, 16, 28, 28)
@@ -90,8 +96,8 @@ class TestVideoModule(unittest.TestCase):
     def test_residual_block(self):
         # Create a ResidualBlock instance
         block = ResidualBlock(
-            inp_channel=64,
-            out_channel=128,
+            in_channels=64,
+            out_channels=128,
         )
         
         # Create a random input tensor
@@ -102,6 +108,42 @@ class TestVideoModule(unittest.TestCase):
         
         # Check output shape
         self.assertEqual(out.shape, (1, 128, 8, 16, 16))
+        
+    def test_residual_block_causal(self):
+        # Create a ResidualBlock instance
+        block = ResidualBlock(
+            in_channels=64,
+            out_channels=128,
+            num_groups=2,
+            use_causal=True,
+        )
+        
+        # Create a random input tensor
+        inp = torch.randn(1, 64, 8, 16, 16)
+        
+        # Perform forward pass
+        out = block(inp)
+        
+        # Check output shape
+        self.assertEqual(out.shape, (1, 128, 8, 16, 16))
+        
+    def test_residual_block_downsample(self):
+        # Create a ResidualBlock instance
+        block = ResidualBlock(
+            in_channels=64,
+            out_channels=128,
+            downsample=(2, 4),
+            act_fn='leaky',
+        )
+        
+        # Create a random input tensor
+        inp = torch.randn(1, 64, 8, 16, 16)
+        
+        # Perform forward pass
+        out = block(inp)
+        
+        # Check output shape
+        self.assertEqual(out.shape, (1, 128, 4, 4, 4))
         
 if __name__ == '__main__':
     unittest.main()

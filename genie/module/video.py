@@ -1,15 +1,58 @@
+import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn.functional import pad
+from torch.nn.functional import conv3d
 from einops.layers.torch import Rearrange
+
+from math import comb
+from torch.types import Device
 
 from typing import Tuple
 from functools import partial
 from einops import pack
 from einops import unpack
+from einops import repeat
+from einops import einsum
 from einops import rearrange
 
 from genie.utils import default, exists
+
+def get_blur_kernel(
+    kernel_size : int | Tuple[int, int],
+    device : Device = None,
+    dtype : torch.dtype | None = None,
+    norm : bool = True
+) -> Tensor:
+    if isinstance(kernel_size, int):
+        kernel_size = (kernel_size, kernel_size)
+    
+    # Construct the 1d pascal blur kernel
+    ker_t_1d = torch.tensor(
+        [comb(kernel_size[0] - 1, i) for i in range(kernel_size[0])],
+        device=device,
+        dtype=dtype,
+    )
+    ker_h_1d = rearrange(
+        torch.tensor(
+            [comb(kernel_size[0] - 1, i) for i in range(kernel_size[0])],
+            device=device,
+            dtype=dtype,
+        ),
+        'h -> h 1'
+    )
+    ker_w_1d = rearrange(
+            torch.tensor(
+            [comb(kernel_size[1] - 1, i) for i in range(kernel_size[0])],
+            device=device,
+            dtype=dtype,
+        ),
+        'w -> 1 w'
+    )
+    
+    ker_3d = einsum(ker_t_1d, ker_h_1d @ ker_w_1d, 't, h w -> t h w')
+    
+    return ker_3d / ker_3d.sum() if norm else ker_3d
 
 class CausalConv3d(nn.Module):
     """
@@ -37,7 +80,7 @@ class CausalConv3d(nn.Module):
         kernel_size: int | Tuple[int, int, int],
         stride: int | Tuple[int, int, int] = (1, 1, 1),
         dilation: int | Tuple[int, int, int] = (1, 1, 1),
-        space_pad : int | Tuple[int, int] | None = None,
+        padding : int | Tuple[int, int] | None = None,
         pad_mode: str = 'constant',
         **kwargs
     ):
@@ -49,18 +92,20 @@ class CausalConv3d(nn.Module):
             dilation = (dilation, dilation, dilation)
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size, kernel_size)
-        if isinstance(space_pad, int | None):
-            space_pad = (space_pad, space_pad)
+        if isinstance(padding, int | None):
+            padding = (padding, padding)
 
         t_stride, *s_stride = stride
         t_dilation, *s_dilation = dilation
 
         # Compute the appropriate causal padding
+        if isinstance(padding, int | None):
+            padding = (padding, padding)
 
         time_ker, height_ker, width_ker = kernel_size
         time_pad = (time_ker - 1) * t_dilation + (1 - t_stride)
-        height_pad = default(space_pad[0], (height_ker - 1) // 2)
-        width_pad  = default(space_pad[1], (width_ker  - 1)  // 2)
+        height_pad = default(padding[0], (height_ker - 1) // 2)
+        width_pad  = default(padding[1], (width_ker  - 1)  // 2)
 
         # Causal padding pads time only to the left to ensure causality
         self.causal_pad = partial(
@@ -325,27 +370,6 @@ class DepthToSpaceTimeUpsample(nn.Module):
     def out_dim(self) -> int:
         return self.out_channels
 
-class SpaceTimeDownsample(CausalConv3d):
-    '''Space-Time Downsample module.
-    '''
-    
-    def __init__(
-        self,
-        in_channels : int,
-        out_channels : int,
-        time_factor : int = 2,
-        space_factor : int = 2,
-        **kwargs
-    ) -> None:
-        kernel_size = kwargs.pop('kernel_size', (time_factor, space_factor, space_factor))
-        super().__init__(
-            in_channels,
-            out_channels,
-            stride = (time_factor, space_factor, space_factor),
-            kernel_size = kernel_size,
-            **kwargs,
-        )
-
 class SpaceTimeUpsample(CausalConvTranspose3d):
     '''Space-Time Upsample module.
     '''
@@ -367,10 +391,87 @@ class SpaceTimeUpsample(CausalConvTranspose3d):
             **kwargs,
         )
 
+class SpaceTimeDownsample(CausalConv3d):
+    '''Space-Time Downsample module.
+    '''
+    
+    def __init__(
+        self,
+        in_channels : int,
+        kernel_size : int | Tuple[int, int, int],
+        out_channels : int | None = None,
+        time_factor : int = 2,
+        space_factor : int = 2,
+        **kwargs
+    ) -> None:
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size, kernel_size)
+        
+        super().__init__(
+            in_channels,
+            default(out_channels, in_channels),
+            kernel_size = kernel_size,
+            stride = (time_factor, space_factor, space_factor),
+            **kwargs,
+        )
+
+# Inspired by the (very cool) kornia library, see the original implementation here:
+# https://github.com/kornia/kornia/blob/e461f92ff9ee035d2de2513859bee4069356bc25/kornia/filters/blur_pool.py#L21
+class BlurPooling3d(nn.Module):
+    def __init__(
+        self,
+        in_channels : int, # Needed only for compatibility
+        kernel_size : int | Tuple[int, int, int],
+        out_channels : int | None = None,
+        time_factor : int = 2,
+        space_factor : int | Tuple[int, int] = 2,
+        num_groups : int = 1,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size, kernel_size)
+        if isinstance(space_factor, int):
+            space_factor = (space_factor, space_factor)
+        
+        # Register the blurring kernel buffer
+        self.register_buffer('blur', get_blur_kernel(kernel_size))
+        
+        self.stride = (time_factor, *space_factor)
+        self.kwargs = kwargs
+        self.num_groups = num_groups
+        self.out_channels = out_channels
+        
+        ker_t, ker_h, ker_w = kernel_size
+        str_t, str_h, str_w = self.stride
+        self.padding = (ker_t - 1) // str_t, (ker_h - 1) // str_h, (ker_w - 1) // str_w
+        
+    def forward(
+        self,
+        inp : Tensor,
+    ) -> Tensor:
+        b, c, t, h, w = inp.shape
+        
+        o = default(self.out_channels, c)
+        
+        # Repeat spatial kernel for each channel of input image
+        ker = repeat(self.blur, 'i j k -> o g i j k', o=o, g=c // self.num_groups)
+        
+        # Compute the blur as 2d convolution
+        return conv3d(
+            inp, ker,
+            stride=self.stride,
+            padding=self.padding,
+            groups=self.num_groups,
+            **self.kwargs
+        )
 
 class ResidualBlock(nn.Module):
     """
-    A residual block module that performs residual connections and applies convolutional operations.
+    A residual block module that performs residual connections and applies
+    convolutional operations, with flexible options for normalization and
+    down-sampling of input.
     
     Args:
         inp_channel (int): The number of input channels.
@@ -378,6 +479,11 @@ class ResidualBlock(nn.Module):
         kernel_size (int | Tuple[int, int, int], optional): The size of the convolutional kernel. Defaults to 3.
         num_groups (int, optional): The number of groups to separate the channels into for group normalization. Defaults to 32.
         pad_mode (str, optional): The padding mode for convolution. Defaults to 'constant'.
+        downsample (int | Tuple[int, int] | None, optional): The factor by which to downsample the input. Defaults to None.
+        causal (bool, optional): Whether to use a causal convolution. Defaults to False.
+        use_norm (bool, optional): Whether to use normalization. Defaults to True.
+        use_blur (bool, optional): Whether to use blur pooling. Defaults to True.
+        act_fn (str, optional): The activation function to use. Defaults to 'swish'.
     """
     
     def __init__(
@@ -387,34 +493,71 @@ class ResidualBlock(nn.Module):
         kernel_size : int | Tuple[int, int, int] = 3,
         num_groups : int = 1,
         pad_mode : str = 'constant',
+        downsample : int | Tuple[int, int] | None = None,
+        use_causal : bool = False,
+        use_norm : bool = True,
+        use_blur : bool = True,
+        act_fn : str = 'swish',
     ) -> None:
         super().__init__()
         
-        self.res = CausalConv3d(
-            in_channels,
-            out_channels,
-            kernel_size=1
-        ) if exists(out_channels) else nn.Identity()
+        if isinstance(downsample, int):
+            downsample = (downsample, downsample)
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size, kernel_size)
+        
+        Norm = nn.GroupNorm  if use_norm else nn.Identity
+        Down = BlurPooling3d if use_blur else SpaceTimeDownsample
+        Conv = partial(CausalConv3d, pad_mode=pad_mode) if use_causal else nn.Conv3d
+        
+        match act_fn:
+            case 'relu': Act = nn.ReLU
+            case 'gelu': Act = nn.GELU
+            case 'leaky': Act = nn.LeakyReLU
+            case 'swish' | 'silu': Act = nn.SiLU
         
         out_channels = default(out_channels, in_channels)
+        time_factor, space_factor = downsample if exists(downsample) else (None, None)
+        
+        self.res = nn.Sequential(
+            Down(
+                in_channels,
+                kernel_size,
+                time_factor=time_factor,
+                space_factor=space_factor,
+                num_groups=num_groups,
+            ) if exists(downsample) else nn.Identity(),
+            Conv(
+                in_channels,
+                kernel_size=1,
+                out_channels=out_channels,
+            ) if exists(out_channels) else nn.Identity()
+        )
         
         self.main = nn.Sequential(
-            nn.GroupNorm(num_groups, in_channels),
-            nn.SiLU(),
-            CausalConv3d(
+            Norm(num_groups, in_channels),
+            Act(),
+            Conv(
                 in_channels,
-                out_channels,
+                out_channels=out_channels,
                 kernel_size=kernel_size,
-                pad_mode=pad_mode,
+                padding=tuple(map(lambda k : (k - 1) // 2, kernel_size)),
             ),
-            nn.GroupNorm(num_groups, out_channels),
-            nn.SiLU(),
-            CausalConv3d(
+            Down(
+                out_channels,
+                kernel_size,
+                time_factor=time_factor,
+                space_factor=space_factor,
+                num_groups=num_groups,
+            ) if exists(downsample) else nn.Identity(),
+            Norm(num_groups, out_channels),
+            Act(),
+            Conv(
                 out_channels,
                 out_channels,
                 kernel_size=kernel_size,
-                pad_mode=pad_mode,
-            )
+                padding=tuple(map(lambda k : (k - 1) // 2, kernel_size)),
+            ),
         )
         
         self.inp_channels = in_channels
