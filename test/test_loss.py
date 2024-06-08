@@ -36,13 +36,14 @@ class TestLossModule(unittest.TestCase):
         self.assertEqual(loss.shape, torch.Size([]))  # Check the output shape
         self.assertTrue(loss >= 0)
         
-    def test_gan_loss(self):
+    def test_gan_loss_frames(self):
         
         model = GANLoss(
+            discriminate='frames',
             num_frames=2,
             
             # Discriminator parameters
-            frame_size = (self.img_h, self.img_w),
+            inp_size = (self.img_h, self.img_w),
             model_dim = 64,
             dim_mults = (1, 2, 4),
             down_step = (None, 2, 2),
@@ -53,6 +54,32 @@ class TestLossModule(unittest.TestCase):
             dim_head = 32,
         )
         
+        
+        loss_gen = model(self.rec_video, self.inp_video, train_gen = True)
+        loss_dis = model(self.rec_video, self.inp_video, train_gen = False)
+        
+        self.assertEqual(loss_gen.shape, torch.Size([]))  # Check the output shape
+        self.assertEqual(loss_dis.shape, torch.Size([]))  # Check the output shape
+        
+        self.assertTrue(loss_dis >= 0)
+        
+    def test_gan_loss_video(self):
+        
+        model = GANLoss(
+            discriminate='video',
+            num_frames=2,
+            
+            # Discriminator parameters
+            inp_size = (self.num_frames, self.img_h, self.img_w),
+            model_dim = 64,
+            dim_mults = (1, 2, 4),
+            down_step = (None, 2, 2),
+            inp_channels = self.num_channels,
+            kernel_size = 3,
+            num_groups = 8,
+            num_heads = 4,
+            dim_head = 32,
+        )
         
         loss_gen = model(self.rec_video, self.inp_video, train_gen = True)
         loss_dis = model(self.rec_video, self.inp_video, train_gen = False)

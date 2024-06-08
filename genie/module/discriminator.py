@@ -18,7 +18,7 @@ class FrameDiscriminator(nn.Module):
     
     def __init__(
         self,
-        frame_size : int | Tuple[int, int],
+        inp_size : int | Tuple[int, int],
         model_dim : int = 64,
         dim_mults : Tuple[int, ...] = (1, 2, 4),
         down_step : Tuple[int | None, ...] = (None, 2, 2),
@@ -31,8 +31,8 @@ class FrameDiscriminator(nn.Module):
     ) -> None:
         super().__init__()
         
-        if isinstance(frame_size, int):
-            frame_size = (frame_size, frame_size)
+        if isinstance(inp_size, int):
+            inp_size = (inp_size, inp_size)
             
         # Assemble model core based on dimension schematics
         dims = [model_dim * mult for mult in dim_mults]
@@ -81,10 +81,10 @@ class FrameDiscriminator(nn.Module):
                 ]
             ))
             
-            frame_size = tuple(map(lambda x: x // (down or 1), frame_size))
+            inp_size = tuple(map(lambda x: x // (down or 1), inp_size))
             
         # Compute latent dimension as the product of the last dimension and the frame size
-        latent_dim = out_dim * prod(frame_size)
+        latent_dim = out_dim * prod(inp_size)
         
         self.to_logits = nn.Sequential(
             nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1),
@@ -115,7 +115,7 @@ class VideoDiscriminator(nn.Module):
     
     def __init__(
         self,
-        video_size : Tuple[int, int] | Tuple[int, int, int],
+        inp_size : Tuple[int, int] | Tuple[int, int, int],
         model_dim : int = 64,
         dim_mults : Tuple[int, ...] = (1, 2, 4),
         down_step : Tuple[int | Tuple[int, int] | None, ...] = (None, 2, 2),
@@ -131,8 +131,8 @@ class VideoDiscriminator(nn.Module):
     ) -> None:
         super().__init__()
         
-        if len(video_size) == 2:
-            video_size = (video_size[0], video_size[1], video_size[1])
+        if len(inp_size) == 2:
+            inp_size = (inp_size[0], inp_size[1], inp_size[1])
         
         Conv3d = CausalConv3d if use_causal else nn.Conv3d
         
@@ -189,10 +189,10 @@ class VideoDiscriminator(nn.Module):
             down = default(down, (1, 1, 1))
             if isinstance(down, int): down = (down, down, down)
             if len(down) == 2: down = (down[0], down[1], down[1])
-            video_size = tuple(map(lambda x, y: x // y, video_size, down))
+            inp_size = tuple(map(lambda x, y: x // y, inp_size, down))
         
         # Compute latent dimension as the product of the last dimension and the frame size
-        latent_dim = out_dim * prod(video_size)
+        latent_dim = out_dim * prod(inp_size)
         
         self.to_logits = nn.Sequential(
             nn.Conv3d(out_dim, out_dim, kernel_size=3, padding=1),

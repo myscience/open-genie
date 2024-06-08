@@ -19,7 +19,7 @@ class TestDiscriminator(unittest.TestCase):
 
     def test_frame_discriminator(self):
         discriminator = FrameDiscriminator(
-            frame_size=self.frame_size,
+            inp_size=self.frame_size,
             model_dim=self.model_dim,
             dim_mults=self.dim_mults,
             down_step=self.down_step,
@@ -35,7 +35,7 @@ class TestDiscriminator(unittest.TestCase):
         
     def test_frame_discriminator_attn(self):
         discriminator = FrameDiscriminator(
-            frame_size=self.frame_size,
+            inp_size=self.frame_size,
             model_dim=self.model_dim,
             dim_mults=self.dim_mults,
             down_step=self.down_step,
@@ -52,7 +52,7 @@ class TestDiscriminator(unittest.TestCase):
 
     def test_video_discriminator(self):
         discriminator = VideoDiscriminator(
-            video_size=(self.time_size, *self.frame_size),
+            inp_size=(self.time_size, *self.frame_size),
             model_dim=self.model_dim,
             dim_mults=self.dim_mults,
             down_step=self.down_step,
@@ -69,7 +69,7 @@ class TestDiscriminator(unittest.TestCase):
         
     def test_video_discriminator_attn(self):
         discriminator = VideoDiscriminator(
-            video_size=(self.time_size, *self.frame_size),
+            inp_size=(self.time_size, *self.frame_size),
             model_dim=self.model_dim,
             dim_mults=self.dim_mults,
             down_step=self.down_step,

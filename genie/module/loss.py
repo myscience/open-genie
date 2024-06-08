@@ -6,11 +6,11 @@ from torchvision.models import get_model
 from torch.nn.functional import relu
 from torch.nn.functional import mse_loss
 
-from typing import Iterable
+from typing import Iterable, Tuple
 
 from genie.module.misc import NamingProbe
 from genie.module.misc import RecordingProbe
-from genie.module.discriminator import FrameDiscriminator
+from genie.module.discriminator import FrameDiscriminator, VideoDiscriminator
 from genie.utils import pick_frames
 
 VGG16_RELU_LAYERS = [
@@ -110,14 +110,38 @@ class GANLoss(nn.Module):
     
     def __init__(
         self,
+        discriminate : str = 'frames',
         num_frames : int = 4,
         **kwargs,
     ) -> None:
         super().__init__()
         
-        self.disc = FrameDiscriminator(**kwargs)
+        assert discriminate in ('frames', 'video'), 'Invalid discriminator type. Must be either "frames" or "video".'
+        
+        self.disc = FrameDiscriminator(**kwargs) if discriminate == 'frames' else VideoDiscriminator(**kwargs)
         
         self.num_frames = num_frames
+        self.discriminate = discriminate
+        
+    def get_examples(
+        self,
+        rec_video : Tensor,
+        inp_video : Tensor,
+    ) -> Tuple[Tensor, Tensor]:
+        b, c, t, h, w = inp_video.shape
+        
+        if self.discriminate == 'video':
+            return rec_video, inp_video
+        
+        # Extract a set of random frames from the input video
+        frame_idxs = torch.cat([
+            torch.randperm(t, device=inp_video.device)[:self.num_frames]
+            for _ in range(b)]
+        )
+        fake = pick_frames(rec_video, frame_idxs)
+        real = pick_frames(inp_video, frame_idxs)
+        
+        return fake, real
         
     def forward(
         self,
@@ -128,16 +152,11 @@ class GANLoss(nn.Module):
         b, c, t, h, w = inp_video.shape
         
         # Extract a set of random frames from the input video
-        frame_idxs = torch.cat([
-            torch.randperm(t, device=inp_video.device)[:self.num_frames]
-            for _ in range(b)]
-        )
-        fake_frames = pick_frames(rec_video, frame_idxs)
-        real_frames = pick_frames(inp_video, frame_idxs)
+        fake, real = self.get_examples(rec_video, inp_video)
         
         # Compute discriminator opinions for real and fake frames
-        fake_score : Tensor = self.disc(fake_frames) if     train_gen else self.disc(fake_frames.detach())
-        real_score : Tensor = self.disc(real_frames) if not train_gen else None
+        fake_score : Tensor = self.disc(fake) if     train_gen else self.disc(fake.detach())
+        real_score : Tensor = self.disc(real) if not train_gen else None
         
         # Compute hinge loss for the discriminator
         gan_loss = -fake_score.mean() if train_gen else (relu(1 + fake_score) + relu(1 - real_score)).mean()
