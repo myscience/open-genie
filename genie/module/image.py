@@ -1,15 +1,86 @@
-from itertools import pairwise
-from torch import Tensor
+import torch
 import torch.nn as nn
-
+from torch import Tensor
 from typing import Tuple
+from math import comb
 
+from torch.types import Device
+
+from torch.nn.functional import conv2d
+
+from einops import repeat
 from einops.layers.torch import Rearrange
 
-from genie.module.attention import SpatialAttention
-from genie.module.misc import ForwardBlock
 from genie.utils import exists
 from genie.utils import default
+
+def get_blur_kernel(
+    kernel_size : int | Tuple[int, int],
+    device : Device = None,
+    dtype : torch.dtype | None = None,
+    norm : bool = True
+) -> Tensor:
+    if isinstance(kernel_size, int):
+        kernel_size = (kernel_size, kernel_size)
+    
+    # Construct the 1d pascal blur kernel
+    ker_a_1d = torch.tensor(
+        [comb(kernel_size[0] - 1, i) for i in range(kernel_size[0])],
+        device=device,
+        dtype=dtype,
+    ).unsqueeze(-1)
+    ker_b_1d = torch.tensor(
+        [comb(kernel_size[1] - 1, i) for i in range(kernel_size[0])],
+        device=device,
+        dtype=dtype,
+    ).unsqueeze(0)
+    
+
+    ker_2d = ker_a_1d @ ker_b_1d
+    
+    return ker_2d / ker_2d.sum() if norm else ker_2d
+
+# Inspired by the (very cool) kornia library, see the original implementation here:
+# https://github.com/kornia/kornia/blob/e461f92ff9ee035d2de2513859bee4069356bc25/kornia/filters/blur_pool.py#L21
+class BlurPooling2d(nn.Module):
+    def __init__(
+        self,
+        kernel_size : int | Tuple[int, int],
+        # Expected kwargs are the same as the one accepted by Conv2d
+        stride : int | Tuple[int, int] = 2,
+        num_groups : int = 1,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        
+        # Register the blurring kernel buffer
+        self.register_buffer('blur', get_blur_kernel(kernel_size))
+        
+        self.stride = stride
+        self.kwargs = kwargs
+        self.num_groups = num_groups
+        
+        str_h, str_w = stride      if isinstance(stride,      tuple) else (stride, stride)
+        ker_h, ker_w = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+        self.padding = (ker_h - 1) // str_h, (ker_w - 1) // str_w
+        
+    def forward(
+        self,
+        inp : Tensor,
+    ) -> Tensor:
+        b, c, h, w = inp.shape
+        
+        # Repeat spatial kernel for each channel of input image
+        ker = repeat(self.blur, 'i j -> c g i j', c=c, g=c // self.num_groups)
+        
+        # Compute the blur as 2d convolution
+        return conv2d(
+            inp, ker,
+            stride=self.stride,
+            padding=self.padding,
+            groups=self.num_groups,
+            **self.kwargs
+        )
 
 class SpaceDownsample(nn.Module):
     def __init__(
@@ -90,96 +161,3 @@ class ResidualBlock(nn.Module):
             Tensor: The output tensor after applying the residual block operations.
         """
         return self.main(inp) + self.res(inp)
-
-class FrameDiscriminator(nn.Module):
-    
-    def __init__(
-        self,
-        frame_size : int | Tuple[int, int],
-        model_dim : int = 64,
-        dim_mults : Tuple[int, ...] = (1, 2, 4),
-        down_step : Tuple[int | None, ...] = (None, 2, 2),
-        inp_channels : int = 3,
-        kernel_size : int | Tuple[int, int] = 3,
-        num_groups : int = 1,
-        num_heads : int = 4,
-        dim_head : int = 32,
-    ) -> None:
-        super().__init__()
-        
-        if isinstance(frame_size, int):
-            frame_size = (frame_size, frame_size)
-            
-        # Assemble model core based on dimension schematics
-        dims = [model_dim * mult for mult in dim_mults]
-        
-        assert len(dims) == len(down_step), "Dimension and downsample steps must match."
-        
-        self.proj_in = nn.Conv2d(
-            inp_channels,
-            model_dim,
-            kernel_size=3,
-            padding=1,
-        )
-        
-        self.core = nn.ModuleList([])
-        
-        for (inp_dim, out_dim), down in zip(pairwise(dims), down_step):
-            res_block = ResidualBlock(
-                inp_dim,
-                out_dim,
-                downsample=down,
-                num_groups=num_groups,
-                kernel_size=kernel_size,
-            )
-            
-            attn_block = nn.ModuleList([
-                SpatialAttention(
-                    out_dim,
-                    n_head=num_heads,
-                    d_head=dim_head,
-                ),
-                ForwardBlock(
-                    in_dim=out_dim,
-                    hid_dim=4 * out_dim,
-                    block=nn.Conv2d,
-                    kernel_size=1,
-                )
-            ])
-            
-            self.core.append(nn.ModuleList(
-                [
-                    res_block,
-                    attn_block
-                ]
-            ))
-            
-            frame_size = tuple(map(lambda x: x // (down or 1), frame_size))
-            
-        # Compute latent dimension as the product of the last dimension and the frame size
-        latent_dim = out_dim * frame_size[0] * frame_size[1]
-        
-        self.to_logits = nn.Sequential(
-            nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1),
-            nn.LeakyReLU(),
-            Rearrange('b ... -> b (...)'),
-            nn.Linear(latent_dim, 1),
-            Rearrange('b 1 -> b')
-        )
-        
-    def forward(
-        self,
-        image : Tensor,
-    ) -> Tensor:
-        
-        out = self.proj_in(image)
-        
-        for res, (attn, ff) in self.core:
-            # Apply residual block
-            out = res(out)
-            
-            # Apply attention block
-            out = attn(out) + out
-            out =   ff(out) + out
-        
-        return self.to_logits(out)

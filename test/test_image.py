@@ -1,8 +1,8 @@
 import unittest
 import torch
+from genie.module.image import BlurPooling2d
 from genie.module.image import ResidualBlock
 from genie.module.image import SpaceDownsample
-from genie.module.image import FrameDiscriminator
 
 class TestImageModule(unittest.TestCase):
     
@@ -59,34 +59,22 @@ class TestImageModule(unittest.TestCase):
         
         self.assertEqual(out.shape, (batch_size, out_channel, img_h // downsample, img_w // downsample))
     
-    def test_frame_discriminator(self):
-        frame_size = (64, 64)
-        model_dim = 64
-        dim_mults = (1, 2, 4)
-        down_step = (None, 2, 2)
-        inp_channels = 3
+    def test_blur_pooling(self):
         kernel_size = 3
-        num_groups = 1
-        num_heads = 4
-        dim_head = 32
         batch_size = 4
+        inp_channel = 64
+        stride = 2
+        img_h, img_w = 32, 32
         
-        frame_discriminator = FrameDiscriminator(
-            frame_size   = frame_size,
-            model_dim    = model_dim,
-            dim_mults    = dim_mults,
-            down_step    = down_step,
-            inp_channels = inp_channels,
-            kernel_size  = kernel_size,
-            num_groups   = num_groups,
-            num_heads    = num_heads,
-            dim_head     = dim_head
+        blur_pooling = BlurPooling2d(
+            kernel_size,
+            stride=stride,
         )
         
-        image = torch.randn(batch_size, inp_channels, frame_size[0], frame_size[1])
-        out = frame_discriminator(image)
+        inp = torch.randn(batch_size, inp_channel, img_h, img_w)
+        out = blur_pooling(inp)
         
-        self.assertEqual(out.shape, (batch_size, ))
+        self.assertEqual(out.shape, (batch_size, inp_channel, img_h // stride, img_w // stride))
     
 if __name__ == '__main__':
     unittest.main()
