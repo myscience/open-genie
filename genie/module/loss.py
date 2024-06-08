@@ -10,7 +10,7 @@ from typing import Iterable
 
 from genie.module.misc import NamingProbe
 from genie.module.misc import RecordingProbe
-from genie.module.image import FrameDiscriminator
+from genie.module.discriminator import FrameDiscriminator
 from genie.utils import pick_frames
 
 VGG16_RELU_LAYERS = [
