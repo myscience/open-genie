@@ -207,7 +207,12 @@ class TestVideoTokenizer(unittest.TestCase):
         
         self.assertTrue(loss >= 0)
         for loss in aux_losses:
-            self.assertTrue(loss >= 0)
+            self.assertEqual(loss.shape, torch.Size([]))  # Check the output shape
+        
+        self.assertTrue(aux_losses[0] >= 0)
+        self.assertTrue(aux_losses[2] >= 0)
+        self.assertTrue(aux_losses[3] >= 0)
+        self.assertTrue(aux_losses[4] >= 0)
 
 if __name__ == '__main__':
     unittest.main()

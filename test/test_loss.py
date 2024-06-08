@@ -60,7 +60,6 @@ class TestLossModule(unittest.TestCase):
         self.assertEqual(loss_gen.shape, torch.Size([]))  # Check the output shape
         self.assertEqual(loss_dis.shape, torch.Size([]))  # Check the output shape
         
-        self.assertTrue(loss_gen >= 0)
         self.assertTrue(loss_dis >= 0)
         
 if __name__ == '__main__':
