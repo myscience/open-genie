@@ -217,10 +217,11 @@ class VideoTokenizer(LightningModule):
         optimizer : OptimizerCallable = AdamW,
         perceptual_model : str = 'vgg16',
         perc_feat_layers : str | Iterable[str] = ('features.6', 'features.13', 'features.18', 'features.25'),
+        gan_discriminate : str = 'frames',
+        gan_frames_per_batch : int = 4,
         gan_loss_weight : float = 1.,
         perc_loss_weight : float = 1.,
         quant_loss_weight : float = 1.,
-        num_frames_per_batch : int = 4,
     ) -> None:
         super().__init__()
         
@@ -281,12 +282,13 @@ class VideoTokenizer(LightningModule):
         self.perc_crit = PerceptualLoss(
                 model_name=perceptual_model,
                 feat_layers=perc_feat_layers,
-                num_frames=num_frames_per_batch,
+                num_frames=gan_frames_per_batch,
             ) if perc_loss_weight > 0 else nn.Identity()
         
         # If the GAN loss is enabled, load the Discriminator model
         self.gan_crit = GANLoss(
-                num_frames=num_frames_per_batch,
+                discriminate=gan_discriminate,
+                num_frames=gan_frames_per_batch,
                 **disc_kwargs,
             ) if gan_loss_weight > 0 else nn.Identity()
         
