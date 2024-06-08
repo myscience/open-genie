@@ -145,5 +145,25 @@ class TestVideoModule(unittest.TestCase):
         # Check output shape
         self.assertEqual(out.shape, (1, 128, 4, 4, 4))
         
+    def test_residual_block_causal_downsample(self):
+        # Create a ResidualBlock instance
+        block = ResidualBlock(
+            in_channels=64,
+            out_channels=128,
+            num_groups=2,
+            use_causal=True,
+            act_fn='leaky',
+            downsample=(2, 4),
+        )
+        
+        # Create a random input tensor
+        inp = torch.randn(1, 64, 8, 16, 16)
+        
+        # Perform forward pass
+        out = block(inp)
+        
+        # Check output shape
+        self.assertEqual(out.shape, (1, 128, 4, 4, 4))
+        
 if __name__ == '__main__':
     unittest.main()

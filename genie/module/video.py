@@ -105,7 +105,7 @@ class CausalConv3d(nn.Module):
         time_ker, height_ker, width_ker = kernel_size
         time_pad = (time_ker - 1) * t_dilation + (1 - t_stride)
         height_pad = default(padding[0], (height_ker - 1) // 2)
-        width_pad  = default(padding[1], (width_ker  - 1)  // 2)
+        width_pad  = default(padding[1], (width_ker  - 1) // 2)
 
         # Causal padding pads time only to the left to ensure causality
         self.causal_pad = partial(
@@ -444,8 +444,7 @@ class BlurPooling3d(nn.Module):
         self.out_channels = out_channels
         
         ker_t, ker_h, ker_w = kernel_size
-        str_t, str_h, str_w = self.stride
-        self.padding = (ker_t - 1) // str_t, (ker_h - 1) // str_h, (ker_w - 1) // str_w
+        self.padding = (ker_t - 1) // 2, (ker_h - 1) // 2, (ker_w - 1) // 2
         
     def forward(
         self,
@@ -466,6 +465,9 @@ class BlurPooling3d(nn.Module):
             groups=self.num_groups,
             **self.kwargs
         )
+        
+    def __repr__(self):
+        return f'BlurPooling3d({self.out_channels}, kernel_size={tuple(self.blur.shape)}, stride={self.stride}, padding={self.padding})'
 
 class ResidualBlock(nn.Module):
     """

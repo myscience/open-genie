@@ -1,8 +1,8 @@
 import unittest
-from genie.tokenizer import VideoTokenizer
 import unittest
 import torch
-from genie.tokenizer import VideoTokenizer
+
+from genie import VideoTokenizer
 
 TEST_ENC_DESC = (
     ('causal', {
@@ -11,15 +11,11 @@ TEST_ENC_DESC = (
         'kernel_size': 3,
     }),
     ('residual', {
-        'n_rep': 2,
         'in_channels': 64,
-    }),
-    ('spacetime_downsample', {
-        'in_channels': 64,
-        'out_channels': 64,
         'kernel_size': 3,
-        'time_factor': 1,
-        'space_factor': 2,
+        'downsample': (1, 2),
+        'use_causal': True,
+        'use_blur': True,
     }),
     ('residual', {
         'in_channels': 64,
@@ -28,17 +24,13 @@ TEST_ENC_DESC = (
     ('residual', {
         'n_rep': 2,
         'in_channels': 128,
-    }),
-    ('spacetime_downsample', {
-        'in_channels': 128,
-        'out_channels': 128,
-        'kernel_size': 3,
-        'time_factor': 2,
-        'space_factor': 2,
     }),
     ('residual', {
         'in_channels': 128,
         'out_channels': 256,
+        'kernel_size': 3,
+        'downsample': 2,
+        'use_causal': True,
     }),
     ('proj_out', {
         'in_channels': 256,
@@ -125,7 +117,7 @@ class TestVideoTokenizer(unittest.TestCase):
             
             disc_kwargs=dict(
                 # Discriminator parameters
-                frame_size = (self.img_h, self.img_w),
+                inp_size = (self.img_h, self.img_w),
                 model_dim = 64,
                 dim_mults = (1, 2, 4),
                 down_step = (None, 2, 2),
@@ -147,10 +139,11 @@ class TestVideoTokenizer(unittest.TestCase):
             #
             perceptual_model = 'vgg16',
             perc_feat_layers = ('features.6', 'features.13', 'features.18', 'features.25'),
+            gan_discriminate='frames',
+            gan_frames_per_batch = 4,
             gan_loss_weight = 1.,
             perc_loss_weight = 1.,
             quant_loss_weight = 1.,
-            num_frames_per_batch = 4,
         )
         
         # Example video tensor
