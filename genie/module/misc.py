@@ -69,35 +69,36 @@ class RecordingProbe:
         self._data.clear()
         
 class ForwardBlock(nn.Module):
+    
+    def __init__(
+        self,
+        in_dim : int,
+        out_dim : int | None = None,
+        hid_dim : int | Tuple[int, ...] | None = 256,
+        block  : nn.Module = nn.Linear,
+        act_fn : nn.Module = nn.GELU,
+        num_groups : int = 1,
+        **kwargs,
+    ) -> None:
+        super().__init__()
         
-        def __init__(
-            self,
-            in_dim : int,
-            out_dim : int | None = None,
-            hid_dim : int | Tuple[int, ...] = 256,
-            block  : nn.Module = nn.Linear,
-            act_fn : nn.Module = nn.GELU,
-            num_groups : int = 1,
-            **kwargs,
-        ) -> None:
-            super().__init__()
-            
-            out_dim = default(out_dim, in_dim)
-            if isinstance(hid_dim, int): hid_dim = (hid_dim,)
-            
-            dims = (in_dim,) + hid_dim
-            
-            self.net = nn.Sequential(
-                nn.GroupNorm(num_groups, in_dim),
-                *[nn.Sequential(
-                    block(inp_dim, out_dim, **kwargs),
-                    act_fn()
-                ) for inp_dim, out_dim in pairwise(dims)],
-                block(hid_dim[-1], out_dim, **kwargs)
-            )
-            
-        def forward(
-            self,
-            inp : Tensor
-        ) -> Tensor:
-            return self.net(inp)
+        out_dim = default(out_dim, in_dim)
+        if isinstance(hid_dim, int): hid_dim = (hid_dim,)
+        hid_dim = default(hid_dim, ())
+        
+        dims = (in_dim,) + hid_dim
+        
+        self.net = nn.Sequential(
+            nn.GroupNorm(num_groups, in_dim),
+            *[nn.Sequential(
+                block(inp_dim, out_dim, **kwargs),
+                act_fn()
+            ) for inp_dim, out_dim in pairwise(dims)],
+            block(hid_dim[-1], out_dim, **kwargs)
+        )
+        
+    def forward(
+        self,
+        inp : Tensor
+    ) -> Tensor:
+        return self.net(inp)

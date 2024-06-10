@@ -28,6 +28,8 @@ class FrameDiscriminator(nn.Module):
         num_heads : int = 4,
         dim_head : int = 32,
         use_attn : bool = False,
+        use_blur : bool = True,
+        act_fn : str = 'leaky',
     ) -> None:
         super().__init__()
         
