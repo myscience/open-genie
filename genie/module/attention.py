@@ -200,6 +200,7 @@ class SpatialAttention(SelfAttention):
     def forward(
         self,
         video : Tensor,
+        embed : bool = True,
         mask: Tensor | None = None
     ) -> Tensor:
         b, *_, h, w = video.shape
@@ -208,7 +209,7 @@ class SpatialAttention(SelfAttention):
         inp, t_ps = pack([inp], '* h w c')
         
         # Add spatial positional encoding
-        inp = self.embed(inp)
+        inp = self.embed(inp) if embed else inp
         
         inp, s_ps = pack([inp], 'b * c')
         
@@ -243,6 +244,7 @@ class TemporalAttention(SelfAttention):
     def forward(
         self,
         video : Tensor,
+        embed : bool = True,
         mask : Tensor | None = None
     ) -> Tensor:
         b, *_, h, w = video.shape
@@ -250,7 +252,7 @@ class TemporalAttention(SelfAttention):
         inp = rearrange(video, 'b c t h w -> (b h w) t c')
         
         # Add temporal positional encoding
-        inp = self.embed(inp)
+        inp = self.embed(inp) if embed else inp
         
         out = super().forward(inp, mask)
         
