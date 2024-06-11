@@ -52,6 +52,9 @@ def pick_frames(
     )
     
     return video[batch_idxs, :, frame_idxs, ...]
+
+def enc2dec_name(name : str) -> str:
+    return name.replace('downsample', 'upsample')
     
 def default_iterdata_worker_init(worker_id : int) -> None:
     torch.manual_seed(torch.initial_seed() + worker_id)
