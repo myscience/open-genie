@@ -8,7 +8,7 @@ from genie.module.attention import TemporalAttention
 
 class TestAttentionModule(unittest.TestCase):
     def setUp(self) -> None:
-        self.n_embd = 32
+        self.n_embd = 16
         self.n_head = 4
         self.d_head = 32
         self.bias = True
