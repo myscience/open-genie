@@ -260,7 +260,7 @@ class SpatialAttention(Attention):
             bias,
             scale,
             causal,
-            dropout
+            dropout,
             **kwargs,
         )
         
@@ -315,7 +315,7 @@ class TemporalAttention(Attention):
             bias,
             scale,
             causal,
-            dropout
+            dropout,
             **kwargs,
         )
         
@@ -407,7 +407,6 @@ class SpaceTimeAttention(nn.Module):
         cond  : Tensor | None = None,
         mask  : Tensor | None = None,
     ) -> Tensor:
-        embed = default(embed, self.embed)
         
         # We feed the video first through the spatial attention
         # and then through the temporal attention mechanism.
