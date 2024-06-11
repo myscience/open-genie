@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Tuple
 import torch
 import torch.nn as nn
 from math import pi
@@ -9,6 +9,7 @@ from einops import einsum, rearrange, repeat
 from einops import pack, unpack
 from einops.layers.torch import Rearrange
 
+from genie.module.misc import ForwardBlock
 from genie.utils import default, exists
 
 # Adapted from lucidrains/rotary-embedding-torch at:
@@ -101,11 +102,56 @@ class RotaryEmbedding(nn.Module):
     def get_seq_pos(self, seq_len, device, dtype, offset = 0):
         return (torch.arange(seq_len, device = device, dtype = dtype) + offset) / self.interpolate_factor
 
+class Adapter(nn.Module):
+    def __init__(
+        self,
+        qry_dim : int,
+        n_head : int,
+        d_head : int,        
+        key_dim : int | None = None,
+        val_dim : int | None = None,
+        block : nn.Module | Tuple[nn.Module, ...] = nn.Linear,
+        qry_kwargs : dict = {},
+        key_kwargs : dict = {},
+        val_kwargs : dict = {},
+        bias : bool = False,
+    ) -> None:
+        super().__init__()
+
+        key_dim = default(key_dim, qry_dim)
+        val_dim = default(val_dim, key_dim)
+
+        if issubclass(block, nn.Module):
+            block = (block, block, block)
+        
+        self.to_q = block[0](qry_dim, n_head * d_head, bias=bias, **qry_kwargs)
+        self.to_k = block[1](key_dim, n_head * d_head, bias=bias, **key_kwargs)
+        self.to_v = block[2](val_dim, n_head * d_head, bias=bias, **val_kwargs)
+        
+        self.n_head = n_head
+        
+    def forward(
+        self,
+        qry : Tensor,
+        key : Tensor | None = None,
+        val : Tensor | None = None,
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        key = default(key, qry)
+        val = default(val, key)
+        
+        q = self.to_q(qry)
+        k = self.to_k(key)
+        v = self.to_v(val)
+        
+        qkv = pack([q, k, v], '* b n d')[0]
+        qkv = rearrange(qkv, 'qkv b n (h d) -> qkv b h n d', h=self.n_head)
+        
+        return qkv
 
 # Inspired by the two cool repos implementations at:
 # https://github.com/karpathy/nanoGPT/blob/master/model.py#L29
 # https://github.com/lucidrains/magvit2-pytorch/blob/main/magvit2_pytorch/magvit2_pytorch.py#L255
-class SelfAttention(nn.Module):
+class Attention(nn.Module):
     '''
     Standard self-attention module as originally introduced
     in the paper "Attention is All You Need". This module
@@ -122,14 +168,19 @@ class SelfAttention(nn.Module):
         scale : float | None = None,
         causal : bool = False,
         dropout : float = 0.0,
+        **kwargs,
     ) -> None:
         super().__init__()
         
         self.norm = nn.LayerNorm(n_embd)
+        self.embed = nn.Identity()
         
-        self.to_qkv = nn.Sequential(
-            nn.Linear(n_embd, 3 * (n_head * d_head), bias=bias),
-            Rearrange('b n (qkv h d) -> qkv b h n d', qkv=3, h=n_head),
+        self.to_qkv = Adapter(
+            qry_dim=n_embd,
+            n_head=n_head,
+            d_head=d_head,
+            bias=bias,
+            **kwargs,
         )
         
         self.to_out = nn.Sequential(
@@ -143,14 +194,16 @@ class SelfAttention(nn.Module):
         
     def forward(
         self,
-        seq : Tensor,
+        qry : Tensor,
+        key : Tensor | None = None,
+        val : Tensor | None = None,
         mask : Tensor | None = None,
     ) -> Tensor:
         '''
         Apply self-attention mechanism to the input sequence.
 
         Args:
-            seq (Tensor): Input sequence tensor of shape (batch_size, sequence_length, embedding_size).
+            qry (Tensor): Input sequence tensor of shape (batch_size, sequence_length, embedding_size).
             mask (Tensor, optional): Mask tensor of shape (batch_size, sequence_length) indicating which
                 elements in the sequence should be masked. Defaults to None.
 
@@ -158,10 +211,15 @@ class SelfAttention(nn.Module):
             Tensor: Output tensor after applying self-attention mechanism of shape
                 (batch_size, sequence_length, embedding_size).
         '''
-        seq = self.norm(seq)
+        
+        qry = self.norm(qry)
+        qry = self.embed(qry)
+        
+        key = default(key, qry)
+        val = default(val, key)
         
         # Project the input sequence into query, key, and value
-        q, k, v = self.to_qkv(seq)
+        q, k, v = self.to_qkv(qry, key, val)
         
         # Compute the self-attention using fast flash-attention
         attn = scaled_dot_product_attention(q, k, v,
@@ -176,7 +234,7 @@ class SelfAttention(nn.Module):
         
         return out
 
-class SpatialAttention(SelfAttention):
+class SpatialAttention(Attention):
     '''
     Attention module that applies self-attention across the
     spatial dimensions of the input tensor, expected to be
@@ -189,38 +247,50 @@ class SpatialAttention(SelfAttention):
         n_head : int,
         d_head : int,
         bias : bool = False,
+        embed : bool = True,
         scale : float | None = None,
         causal : bool = False,
         dropout : float = 0.0,
+        **kwargs,
     ) -> None:
-        super().__init__(n_embd, n_head, d_head, bias, scale, causal, dropout)
+        super().__init__(
+            n_embd,
+            n_head,
+            d_head,
+            bias,
+            scale,
+            causal,
+            dropout
+            **kwargs,
+        )
         
-        self.embed = RotaryEmbedding(n_embd, kind='2d')
+        # Use 2d-rotary embedding for spatial attention
+        self.embed = RotaryEmbedding(n_embd, kind='2d') if embed else nn.Identity()
     
     def forward(
         self,
         video : Tensor,
-        embed : bool = True,
+        cond : Tensor | None = None,
         mask: Tensor | None = None
     ) -> Tensor:
         b, *_, h, w = video.shape
         
         inp = rearrange(video, 'b c ... h w -> b ... h w c')
-        inp, t_ps = pack([inp], '* h w c')
-        
-        # Add spatial positional encoding
-        inp = self.embed(inp) if embed else inp
-        
+        inp, t_ps = pack([inp], '* h w c')        
         inp, s_ps = pack([inp], 'b * c')
         
-        out = super().forward(inp, mask)
+        out = super().forward(
+            inp,
+            key=cond,
+            mask = mask,
+        )
         
         out = unpack(out, s_ps, 'b * c')[0]
         out = unpack(out, t_ps, '* h w c')[0]
         
         return rearrange(out, 'b ... h w c -> b c ... h w', b=b, h=h, w=w)
 
-class TemporalAttention(SelfAttention):
+class TemporalAttention(Attention):
     '''
     Attention module that applies self-attention across the
     temporal dimension of the input tensor, expected to be
@@ -233,27 +303,117 @@ class TemporalAttention(SelfAttention):
         n_head : int,
         d_head : int,
         bias : bool = False,
+        embed : bool = True,
         scale : float | None = None,
         causal : bool = False,
         dropout : float = 0.0,
+        **kwargs,
     ) -> None:
-        super().__init__(n_embd, n_head, d_head, bias, scale, causal, dropout)
+        super().__init__(n_embd,
+            n_head,
+            d_head,
+            bias,
+            scale,
+            causal,
+            dropout
+            **kwargs,
+        )
         
-        self.embed = RotaryEmbedding(n_embd, kind='1d')
+        # Use 1d-rotary embedding for temporal attention
+        self.embed = RotaryEmbedding(n_embd, kind='1d') if embed else nn.Identity()
     
     def forward(
         self,
         video : Tensor,
-        embed : bool = True,
+        cond : Tensor | None = None,
         mask : Tensor | None = None
     ) -> Tensor:
         b, *_, h, w = video.shape
         
         inp = rearrange(video, 'b c t h w -> (b h w) t c')
         
-        # Add temporal positional encoding
-        inp = self.embed(inp) if embed else inp
-        
-        out = super().forward(inp, mask)
+        out = super().forward(
+            inp,
+            key=cond,
+            mask = mask,
+        )
         
         return rearrange(out, '(b h w) t c -> b c t h w', b=b, h=h, w=w)
+    
+class SpaceTimeAttention(nn.Module):
+    
+    def __init__(
+        self,
+        n_embd : int,
+        n_head : int | Tuple[int, int],
+        d_head : int | Tuple[int, int],
+        hid_dim : int | Tuple[int, int] | None = None,
+        bias : bool = False,
+        embed : bool | Tuple[bool, bool] = True,
+        scale : float | None = None,
+        dropout : float = 0.0,
+        kernel_size : int = 3,
+        temp_attn_kw : dict = {},
+        space_attn_kw : dict = {},
+    ) -> None:
+        super().__init__()
+        
+        if isinstance(n_head, int):
+            n_head = (n_head, n_head)
+        if isinstance(d_head, int):
+            d_head = (d_head, d_head)
+        if isinstance(embed, bool):
+            embed = (embed, embed)
+        
+        self.space_attn = SpatialAttention(
+            n_embd=n_embd,
+            n_head=n_head[0],
+            d_head=d_head[0],
+            bias=bias,
+            scale=scale,
+            embed=embed[0],
+            causal=False,
+            dropout=dropout,
+            **space_attn_kw,
+        )
+        
+        self.temp_attn = TemporalAttention(
+            n_embd=n_embd,
+            n_head=n_head[1],
+            d_head=d_head[1],
+            bias=bias,
+            scale=scale,
+            embed=embed[1],
+            # * Causal attention for temporal attention
+            causal=True, 
+            dropout=dropout,
+            **temp_attn_kw,
+        )
+        
+        self.ffn = ForwardBlock(
+            n_embd,
+            out_dim=n_embd,
+            hid_dim=hid_dim,
+            num_groups=n_head[1],
+            bias=bias,
+            block=nn.Conv3d,
+            kernel_size=kernel_size,
+            padding=(kernel_size - 1) // 2,
+        )
+        
+    def forward(
+        self,
+        video : Tensor,
+        cond  : Tensor | None = None,
+        mask  : Tensor | None = None,
+    ) -> Tensor:
+        embed = default(embed, self.embed)
+        
+        # We feed the video first through the spatial attention
+        # and then through the temporal attention mechanism.
+        # NOTE: Positional embeddings are added within the attention
+        video = self.space_attn(video, cond=cond, mask=mask) + video
+        video = self.temp_attn (video, cond=cond, mask=mask) + video
+        video = self.ffn(video) + video
+        
+        return video
