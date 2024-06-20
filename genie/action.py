@@ -1,13 +1,17 @@
 from typing import Tuple
 from torch import Tensor
 import torch.nn as nn
+
+from math import prod
 from torch.nn.functional import mse_loss
+
+from einops.layers.torch import Rearrange
 
 from genie.module.attention import SpaceTimeAttention
 from genie.module.norm import AdaptiveGroupNorm
 from genie.module.quantization import LookupFreeQuantization
-from genie.module.video import CausalConv3d, DepthToSpaceTimeUpsample, DepthToSpaceUpsample, DepthToTimeUpsample, SpaceTimeDownsample
-from genie.utils import default, enc2dec_name, exists
+from genie.module.video import CausalConv3d, DepthToSpaceTimeUpsample, DepthToSpaceUpsample, DepthToTimeUpsample, Downsample, SpaceTimeDownsample, Upsample
+from genie.utils import Blueprint, default, enc2dec_name, exists
 
 def get_module(name : str) -> nn.Module:
     match name:
@@ -36,9 +40,11 @@ class LatentAction(nn.Module):
     
     def __init__(
         self,
-        blueprint: Tuple[str  | Tuple[str, dict], ...],
+        enc_desc: Blueprint,
+        dec_desc: Blueprint,
         d_codebook: int,
         inp_channels: int = 3,
+        inp_shape : int | Tuple[int, int] = (64, 64),
         ker_size : int | Tuple[int, int] = 3,
         n_embd: int = 256,
         n_codebook: int = 1,
@@ -50,6 +56,8 @@ class LatentAction(nn.Module):
         quant_loss_weight : float = 1.,
     ) -> None:
         super().__init__()
+        
+        if isinstance(inp_shape, int): inp_shape = (inp_shape, inp_shape)
         
         self.proj_in = CausalConv3d(
             inp_channels,
@@ -69,10 +77,7 @@ class LatentAction(nn.Module):
         self.enc_ext = list()
         self.dec_ext = list()
         
-        for enc_l in (blueprint):
-            # We build a mirror decoder based on the encoder blueprint
-            dec_l = enc2dec_name(enc_l)
-            
+        for enc_l, dec_l in zip(enc_desc, dec_desc):            
             if isinstance(enc_l, str): enc_l = (enc_l, {})
             if isinstance(dec_l, str): dec_l = (dec_l, {})
             
@@ -100,6 +105,22 @@ class LatentAction(nn.Module):
                 ]
             )
         
+        # Keep track of space-time up/down factors
+        enc_fact = prod(enc.factor for enc in self.enc_layers if isinstance(enc, (Downsample, Upsample)))
+        dec_fact = prod(dec.factor for dec in self.dec_layers if isinstance(dec, (Downsample, Upsample)))
+        
+        assert enc_fact * dec_fact == 1, 'The product of the space-time up/down factors must be 1.'
+        
+        # Add the projections to the action space
+        self.to_act = nn.Sequential(
+                Rearrange('b c t ... -> b t (c ...)'),
+                nn.Linear(
+                    int(n_embd * enc_fact * prod(inp_shape)),
+                    d_codebook,
+                    bias=False,
+                )
+        )
+        
         # Build the quantization module
         self.quant = LookupFreeQuantization(
             d_codebook       = d_codebook,
@@ -116,34 +137,42 @@ class LatentAction(nn.Module):
     def encode(
         self,
         video: Tensor,
-        mask : Tensor | None = None
-    ) -> Tuple[Tensor, Tensor]:
+        mask : Tensor | None = None,
+        transpose : bool = False,
+    ) -> Tuple[Tuple[Tensor, Tensor], Tensor]:
         video = self.proj_in(video)
         
         # Encode the video frames into latent actions
         for enc in self.enc_layers:
             video = enc(video, mask=mask)
-            
-        # Quantize the latent actions
-        act, q_loss = self.quant(video)
         
-        return act, q_loss
+        # Project to latent action space
+        act : Tensor = self.to_act(video)
+
+        # Quantize the latent actions
+        (act, idxs), q_loss = self.quant(act, transpose=transpose)
+        
+        return (act, video), q_loss
     
     def decode(
         self,
         video : Tensor,
         q_act : Tensor,
-    ) -> Tensor:
-        # Decode the last video frame based on all the previous
-        # frames and the quantized latent actions
-        hist, last = video.split((video.size(2) - 1, 1), dim=2)
-        
+    ) -> Tensor:        
+        # Decode the video frames based on past history and
+        # the quantized latent actions
         for dec, has_ext in zip(self.dec_layers, self.dec_ext):
-            hist = dec(hist, cond=q_act if has_ext else None)
+            video = dec(
+                video,
+                cond=(
+                    None, # No space condition
+                    q_act if has_ext else None,
+                )
+            )
             
-        recon = self.proj_out(hist)
+        recon = self.proj_out(video)
         
-        return recon, last
+        return recon
         
     def forward(
         self,
@@ -152,15 +181,15 @@ class LatentAction(nn.Module):
     ) -> Tuple[Tensor, Tensor]:
         
         # Encode the video frames into latent actions
-        act, q_loss = self.encode(video, mask=mask)
+        (act, enc_video), q_loss = self.encode(video, mask=mask)
         
         # Decode the last video frame based on all the previous
         # frames and the quantized latent actions
-        recon, last = self.decode(video, act)
+        recon = self.decode(enc_video, act)
         
         # Compute the reconstruction loss
         # Reconstruction loss
-        rec_loss = mse_loss(recon, last)
+        rec_loss = mse_loss(recon, video)
         
         # Compute the total loss by combining the individual
         # losses, weighted by the corresponding loss weights
