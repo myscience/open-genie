@@ -196,7 +196,7 @@ class LatentAction(nn.Module):
         loss = rec_loss\
             + q_loss * self.quant_loss_weight
         
-        return loss, (
+        return recon, loss, (
             rec_loss,
             q_loss,
         )
