@@ -127,10 +127,81 @@ loss, aux_losses = tokenizer(mock_video)
 loss.backward()
 ```
 
+## Latent Action Model
+
+Genie implements a `LatentAction` model whose sole task is to formalize a (discrete) codebook of latent actions. This codebook is small by design to encourage _interpretable_ actions (such as `MOVE_RIGHT`). In order to train such codebook the `LatentAction` model is build as a `VQ-VAE` model, where the encoder ingest the video (pixel) frames and produces (quantized) actions as latents. The decoder then ingest previous frame history and the current action to predict the next frame. Both the encoder and decoder are discarded at inference time as the action are provided by the user.
+
+The `LatentAction` model follows a similar design as the `VideoTokenizer`, where the encoder/decoder architectures can be specified via a `Blueprint`. Here is an example code to highlight the core components:
+
+```python
+from genie import LatentAction
+from genie import LATENT_ACT_ENC
+
+model = LatentAction(
+  # Use a pre-made configuration...
+  enc_desc=LATENT_ACT_ENC,
+  # ...Or specify a brand-new one
+  dec_desc=(
+    # Latent Action uses space-time transformer
+    ('space-time_attn', {
+        'n_rep' : 2,
+        'n_embd' : 256,
+        'n_head' : 4,
+        'd_head' : 16,
+        'has_ext' : True,
+        # Decoder uses latent action as external
+        # conditioning for decoding!
+        'time_attn_kw'  : {'key_dim' : 8},
+    }),
+    # But we can also down/up-sample to manage resources
+    # NOTE: Encoder & Decoder should work nicely together
+    #       so that down/up-samples cancel out
+    ('spacetime_upsample', {
+        'in_channels' : 256,
+        'kernel_size' : 3,
+        'time_factor' : 1,
+        'space_factor' : 2,
+    }),
+    ('space-time_attn', {
+        'n_rep' : 2,
+        'n_embd' : 256,
+        'n_head' : 4,
+        'd_head' : 16,
+        'has_ext' : True,
+        'time_attn_kw'  : {'key_dim' : 8},
+    }),
+  ),
+  d_codebook=8,       # Small codebook to incentivize interpretability
+  inp_channels=3,     # Input video channel
+  inp_shape=(64, 64), # Spatial frame dimensions
+  n_embd=256,         # Hidden model dimension
+  # [...] Other kwargs for controlling LFQ module behavior
+)
+
+# Create mock input video
+batch_size = 2
+video_len = 16
+frame_dim = 64, 64
+
+video = torch.randn(batch_size, 3, video_len, *frame_dim)
+
+# Encode the video to extract the latent actions
+(actions, encoded), quant_loss = model.encode(video)
+
+# Compute the reconstructed video and its loss
+recon, loss, aux_losses = model(video)
+
+# This should work!
+assert recon.shape == (batch_size, 3, video_len, *frame_dim)
+
+# Train the model
+loss.backward()
+```
+
 # Roadmap
 
 - [x] Implement the video-tokenizer. Use the MagViT-2 tokenizer as described in [Yu et al., (2023)](https://magvit.cs.cmu.edu/v2/).
-- [ ] Implement the Latent Action Model, a Vector-Quantized ST-Transformer. Predict game-action from past video frames.
+- [x] Implement the Latent Action Model, a Vector-Quantized ST-Transformer. Predict game-action from past video frames.
 - [ ] Implement the Dynamics Model, which takes past frames and actions and produces the new video frame.
 - [ ] Add functioning training script (Lightning).
 - [ ] Show some results.
