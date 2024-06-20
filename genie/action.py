@@ -1,6 +1,7 @@
 from typing import Tuple
 from torch import Tensor
 import torch.nn as nn
+from torch.nn.functional import mse_loss
 
 from genie.module.attention import SpaceTimeAttention
 from genie.module.norm import AdaptiveGroupNorm
@@ -46,6 +47,7 @@ class LatentAction(nn.Module):
         lfq_commit_weight : float = 0.25,
         lfq_entropy_weight : float = 0.1,
         lfq_diversity_weight : float = 1.,
+        quant_loss_weight : float = 1.,
     ) -> None:
         super().__init__()
         
@@ -109,25 +111,63 @@ class LatentAction(nn.Module):
             diversity_weight = lfq_diversity_weight,
         )
         
-    def forward(
+        self.quant_loss_weight = quant_loss_weight
+        
+    def encode(
         self,
         video: Tensor,
-        mask : Tensor | None = None,
+        mask : Tensor | None = None
     ) -> Tuple[Tensor, Tensor]:
         video = self.proj_in(video)
         
         # Encode the video frames into latent actions
         for enc in self.enc_layers:
             video = enc(video, mask=mask)
-        
+            
         # Quantize the latent actions
         act, q_loss = self.quant(video)
         
-        # Decode the quantized latent actions
-        recon = video
+        return act, q_loss
+    
+    def decode(
+        self,
+        video : Tensor,
+        q_act : Tensor,
+    ) -> Tensor:
+        # Decode the last video frame based on all the previous
+        # frames and the quantized latent actions
+        hist, last = video.split((video.size(2) - 1, 1), dim=2)
+        
         for dec, has_ext in zip(self.dec_layers, self.dec_ext):
-            recon = dec(recon, cond=act if has_ext else None)
+            hist = dec(hist, cond=q_act if has_ext else None)
+            
+        recon = self.proj_out(hist)
         
-        recon = self.proj_out(recon)
+        return recon, last
         
-        return recon, q_loss
+    def forward(
+        self,
+        video: Tensor,
+        mask : Tensor | None = None,
+    ) -> Tuple[Tensor, Tensor]:
+        
+        # Encode the video frames into latent actions
+        act, q_loss = self.encode(video, mask=mask)
+        
+        # Decode the last video frame based on all the previous
+        # frames and the quantized latent actions
+        recon, last = self.decode(video, act)
+        
+        # Compute the reconstruction loss
+        # Reconstruction loss
+        rec_loss = mse_loss(recon, last)
+        
+        # Compute the total loss by combining the individual
+        # losses, weighted by the corresponding loss weights
+        loss = rec_loss\
+            + q_loss * self.quant_loss_weight
+        
+        return loss, (
+            rec_loss,
+            q_loss,
+        )
