@@ -78,6 +78,7 @@ class ForwardBlock(nn.Module):
         block  : nn.Module = nn.Linear,
         act_fn : nn.Module = nn.GELU,
         num_groups : int = 1,
+        last_act : bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -86,15 +87,14 @@ class ForwardBlock(nn.Module):
         if isinstance(hid_dim, int): hid_dim = (hid_dim,)
         hid_dim = default(hid_dim, ())
         
-        dims = (in_dim,) + hid_dim
+        dims = (in_dim,) + hid_dim + (out_dim,)
         
         self.net = nn.Sequential(
             nn.GroupNorm(num_groups, in_dim),
             *[nn.Sequential(
                 block(inp_dim, out_dim, **kwargs),
-                act_fn()
-            ) for inp_dim, out_dim in pairwise(dims)],
-            block(hid_dim[-1], out_dim, **kwargs)
+                act_fn() if l < len(dims) - 2 or last_act else nn.Identity()
+            ) for l, (inp_dim, out_dim) in enumerate(pairwise(dims))],
         )
         
     def forward(
