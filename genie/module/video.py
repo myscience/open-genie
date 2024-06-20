@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from abc import ABC
 from torch import Tensor
 from torch.nn.functional import pad
 from torch.nn.functional import conv3d
@@ -53,6 +54,54 @@ def get_blur_kernel(
     ker_3d = einsum(ker_t_1d, ker_h_1d @ ker_w_1d, 't, h w -> t h w')
     
     return ker_3d / ker_3d.sum() if norm else ker_3d
+
+class Upsample(nn.Module, ABC):
+    def __init__(
+        self,
+        time_factor : int = 1,
+        space_factor : int = 1,
+    ) -> None:
+        super().__init__()
+        
+        self.time_factor = time_factor
+        self.space_factor = space_factor
+        
+        self.go_up = None
+    
+    @property
+    def factor(self) -> int:
+        return self.time_factor * (self.space_factor ** 2)
+    
+    def forward(
+        self,
+        inp : Tensor,
+        **kwargs,
+    ) -> Tensor:
+        return self.go_up(inp)
+    
+class Downsample(nn.Module, ABC):
+    def __init__(
+        self,
+        time_factor : int = 1,
+        space_factor : int = 1,
+    ) -> None:
+        super().__init__()
+        
+        self.time_factor = time_factor
+        self.space_factor = space_factor
+        
+        self.go_down = None
+    
+    @property
+    def factor(self) -> int:
+        return self.time_factor * (self.space_factor ** 2)
+    
+    def forward(
+        self,
+        inp : Tensor,
+        **kwargs,
+    ) -> Tensor:
+        return self.go_down(inp)
 
 class CausalConv3d(nn.Module):
     """
@@ -227,7 +276,7 @@ class CausalConvTranspose3d(nn.ConvTranspose3d):
     def out_dim(self) -> int:
         return self.out_channels
     
-class DepthToSpaceUpsample(nn.Module):
+class DepthToSpaceUpsample(Upsample):
     '''Depth to Space Upsampling module.
     '''
     
@@ -237,7 +286,9 @@ class DepthToSpaceUpsample(nn.Module):
         out_channels : int | None = None,
         factor : int = 2,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            space_factor=factor,
+        )
         
         out_channels = default(out_channels, in_channels)
     
@@ -251,7 +302,8 @@ class DepthToSpaceUpsample(nn.Module):
         
     def forward(
         self,
-        inp : Tensor
+        inp : Tensor,
+        **kwargs,
     ) -> Tensor:
         # Input is expected to be a video, rearrange it to have
         # shape suitable for a Conv2d layer to operate on
@@ -274,7 +326,7 @@ class DepthToSpaceUpsample(nn.Module):
     def out_dim(self) -> int:
         return self.out_channels
     
-class DepthToTimeUpsample(nn.Module):
+class DepthToTimeUpsample(Upsample):
     '''Depth to Time Upsampling module.
     '''
     
@@ -284,7 +336,9 @@ class DepthToTimeUpsample(nn.Module):
         out_channels : int | None = None,
         factor : int = 2,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            time_factor=factor,
+        )
         
         out_channels = default(out_channels, in_channels)
     
@@ -298,7 +352,8 @@ class DepthToTimeUpsample(nn.Module):
         
     def forward(
         self,
-        inp : Tensor
+        inp : Tensor,
+        **kwargs,
     ) -> Tensor:
         # Input is expected to be a video, rearrange it to have
         # shape suitable for a Conv2d layer to operate on
@@ -321,7 +376,7 @@ class DepthToTimeUpsample(nn.Module):
     def out_dim(self) -> int:
         return self.out_channels
 
-class DepthToSpaceTimeUpsample(nn.Module):
+class DepthToSpaceTimeUpsample(Upsample):
     '''Depth to Space-Time Upsample
     '''
     def __init__(
@@ -332,7 +387,10 @@ class DepthToSpaceTimeUpsample(nn.Module):
         space_factor : int = 2,
         kernel_size : int | Tuple[int, int, int] = 1,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            time_factor=time_factor,
+            space_factor=space_factor,
+        )
         
         out_channels = default(out_channels, in_channels)
     
@@ -355,7 +413,8 @@ class DepthToSpaceTimeUpsample(nn.Module):
         
     def forward(
         self,
-        inp : Tensor
+        inp : Tensor,
+        **kwargs,
     ) -> Tensor:
         # Input is expected to be a video
         out = self.go_up(inp)
@@ -370,7 +429,7 @@ class DepthToSpaceTimeUpsample(nn.Module):
     def out_dim(self) -> int:
         return self.out_channels
 
-class SpaceTimeUpsample(CausalConvTranspose3d):
+class SpaceTimeUpsample(Upsample):
     '''Space-Time Upsample module.
     '''
     
@@ -383,15 +442,19 @@ class SpaceTimeUpsample(CausalConvTranspose3d):
         **kwargs
     ) -> None:
         super().__init__(
+            time_factor=time_factor,
+            space_factor=space_factor,
+        )
+        
+        self.go_up = nn.ConvTranspose3d(
             in_dim,
             out_dim,
+            kernel_size=(time_factor, space_factor, space_factor),
             stride=(time_factor, space_factor, space_factor),
-            kernel_size = (time_factor, space_factor, space_factor),
-            space_pad=0,
             **kwargs,
         )
 
-class SpaceTimeDownsample(CausalConv3d):
+class SpaceTimeDownsample(Downsample):
     '''Space-Time Downsample module.
     '''
     
@@ -404,10 +467,14 @@ class SpaceTimeDownsample(CausalConv3d):
         space_factor : int = 2,
         **kwargs
     ) -> None:
+        super().__init__(
+            time_factor=1 / time_factor,
+            space_factor=1 / space_factor,
+        )
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size, kernel_size)
         
-        super().__init__(
+        self.go_down = CausalConv3d(
             in_channels,
             default(out_channels, in_channels),
             kernel_size = kernel_size,
