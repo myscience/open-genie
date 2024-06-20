@@ -22,7 +22,7 @@ from genie.module.video import DepthToSpaceUpsample
 from genie.module.video import DepthToTimeUpsample
 from genie.module.video import ResidualBlock
 from genie.module.video import SpaceTimeDownsample
-from genie.utils import default, exists
+from genie.utils import Blueprint, default, exists
 
 OptimizerCallable = Callable[[Iterable], Optimizer]
 
@@ -201,8 +201,8 @@ class VideoTokenizer(LightningModule):
     
     def __init__(
         self,
-        enc_desc : Tuple[str | Tuple[str, Dict], ...],
-        dec_desc : Tuple[str | Tuple[str, Dict], ...],
+        enc_desc : Blueprint,
+        dec_desc : Blueprint,
         disc_kwargs : Dict[str, Any] = {},
         # Lookup-Free Quantization parameters
         d_codebook : int = 18,

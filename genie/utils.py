@@ -5,10 +5,12 @@ from einops import rearrange
 from torch import Tensor
 from torch.utils.data import get_worker_info
 
-from typing import TypeVar
+from typing import TypeVar, Tuple
 
 T = TypeVar('T')
 D = TypeVar('D')
+
+Blueprint = Tuple[str | Tuple[str, dict], ...]
 
 def exists(var : T | None) -> bool:
     return var is not None
