@@ -1,7 +1,18 @@
+from einops import rearrange
 import yaml
+import torch
+from cv2 import VideoCapture
+from cv2 import cvtColor
+from cv2 import COLOR_BGR2RGB
+from cv2 import CAP_PROP_POS_FRAMES
+from cv2 import CAP_PROP_FRAME_COUNT
+
+from os import listdir, path
 from abc import abstractmethod
+from random import randint
 
 from torch import Tensor
+from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import IterableDataset
 
@@ -9,7 +20,7 @@ from lightning import LightningDataModule
 
 from typing import Callable
 
-from genie.utils import default
+from genie.utils import default, exists
 from genie.utils import default_iterdata_worker_init
 
 class LightningDataset(LightningDataModule):
@@ -118,3 +129,99 @@ class LightningDataset(LightningDataModule):
             num_workers    = self.num_workers,
             worker_init_fn = worker_init_fn,
         )
+        
+class Platformer2D(Dataset):
+    
+    def __init__(
+        self,
+        root : str,
+        split : str = 'train',
+        env_name : str = 'Coinrun',
+        padding : str = 'none',
+        randomize : bool = False,
+        transform : Callable | None = None,
+        num_frames : int = 16,
+        output_format: str = 't c h w',
+    ) -> None:
+        super().__init__()
+        
+        self.root = path.join(root, env_name)
+        self.split = split
+        self.padding = padding
+        self.randomize = randomize
+        self.num_frames = num_frames
+        self.output_format = output_format
+        self.transform = transform if exists(transform) else lambda x: x
+        
+        # Get all the file path based on the split
+        # ! FIXME: No use is made of the split variable at the moment!
+        self.file_names = [
+            path.join(self.root, f)
+            for f in listdir(self.root)
+        ]
+        
+    def __len__(self) -> int:
+        return len(self.file_names)
+    
+    def __getitem__(self, idx: int) -> Tensor:
+        video_path = self.file_names[idx]
+        
+        video = self.load_video_slice(
+            video_path,
+            self.num_frames,
+            None if self.randomize else 0,
+        )
+        
+        return video
+    
+    def load_video_slice(
+        self,
+        video_path : str,
+        num_frames : int,
+        start_frame : int | None = None
+    ) -> Tensor:
+        cap = VideoCapture(video_path)
+        total_frames = int(cap.get(CAP_PROP_FRAME_COUNT))
+        
+        # If video is shorted than the requested number of frames
+        # we just return the whole video
+        num_frames = min(num_frames, total_frames)
+        
+        start_frame = start_frame if exists(start_frame) else randint(0, total_frames - num_frames)
+        cap.set(CAP_PROP_POS_FRAMES, start_frame)
+        
+        frames = []
+        for _ in range(num_frames):
+            ret, frame = cap.read()
+            if ret:
+                # *Frame was successfully read, parse it
+                frame = cvtColor(frame, COLOR_BGR2RGB) 
+                frame = torch.from_numpy(frame)
+                frames.append(frame)
+                
+            else:
+                # * We reached the end of video
+                # Deal with padding and return
+                match self.padding:
+                    case 'none': pass
+                    case 'repeat':
+                        frames.extend([frames[-1]] * (num_frames - len(frames)))
+                    case 'zero':
+                        frames.extend([
+                                torch.zeros_like(frames[-1])
+                            ] * (num_frames - len(frames))
+                        )
+                    case 'random':
+                        frames.extend([
+                            torch.rand_like(frames[-1])
+                            ] * (num_frames - len(frames))
+                        )
+                    case _:
+                        raise ValueError(f'Invalid padding type: {self.padding}')
+                break
+
+        cap.release()
+        video = torch.stack(frames) / 255.
+        video = rearrange(video, f't h w c -> {self.output_format}')
+        
+        return video
