@@ -7,28 +7,26 @@ from torch.nn.functional import mse_loss
 
 from einops.layers.torch import Rearrange
 
-from genie.module.attention import SpaceTimeAttention
-from genie.module.norm import AdaptiveGroupNorm
+from genie.module import parse_blueprint
 from genie.module.quantization import LookupFreeQuantization
-from genie.module.video import CausalConv3d, DepthToSpaceTimeUpsample, DepthToSpaceUpsample, DepthToTimeUpsample, Downsample, SpaceTimeDownsample, Upsample
-from genie.utils import Blueprint, default, enc2dec_name, exists
+from genie.module.video import CausalConv3d, Downsample, Upsample
+from genie.utils import Blueprint
 
-def get_module(name : str) -> nn.Module:
-    match name:
-        case 'space-time_attn':
-            return SpaceTimeAttention
-        case 'space_upsample':
-            return DepthToSpaceUpsample
-        case 'time_upsample':
-            return DepthToTimeUpsample
-        case 'spacetime_upsample':
-            return DepthToSpaceTimeUpsample
-        case 'spacetime_downsample':
-            return SpaceTimeDownsample
-        case 'adaptive_group_norm':
-            return AdaptiveGroupNorm
-        case _:
-            raise ValueError(f'Unknown module name: {name}')
+REPR_ACT_ENC = (
+    ('space-time_attn', {
+        'n_repr' : 8,
+        'n_heads': 8,
+        'd_head': 64,
+    }),
+)
+
+REPR_ACT_DEC = (
+    ('space-time_attn', {
+        'n_repr' : 8,
+        'n_heads': 8,
+        'd_head': 64,
+    }),
+)
 
 class LatentAction(nn.Module):
     '''Latent Action Model (LAM) used to distill latent actions
@@ -72,38 +70,8 @@ class LatentAction(nn.Module):
         )
         
         # Build the encoder and decoder based on the blueprint
-        self.enc_layers = nn.ModuleList([])
-        self.dec_layers = nn.ModuleList([])
-        self.enc_ext = list()
-        self.dec_ext = list()
-        
-        for enc_l, dec_l in zip(enc_desc, dec_desc):            
-            if isinstance(enc_l, str): enc_l = (enc_l, {})
-            if isinstance(dec_l, str): dec_l = (dec_l, {})
-            
-            name, kwargs = default(enc_l, (None, {}))
-            self.enc_ext.extend(
-                [kwargs.pop('has_ext', False)] * kwargs.get('n_rep', 1)
-            )
-            self.enc_layers.extend(
-                [
-                    get_module(name)(**kwargs)
-                    for _ in range(kwargs.pop('n_rep', 1))
-                    if exists(name) and exists(kwargs)
-                ]
-            )
-            
-            name, kwargs = default(dec_l, (None, {}))
-            self.dec_ext.extend(
-                [kwargs.pop('has_ext', False)] * kwargs.get('n_rep', 1)
-            )
-            self.dec_layers.extend(
-                [
-                    get_module(name)(**kwargs)
-                    for _ in range(kwargs.pop('n_rep', 1))
-                    if exists(name) and exists(kwargs)
-                ]
-            )
+        self.enc_layers, self.enc_ext = parse_blueprint(enc_desc)
+        self.dec_layers, self.dec_ext = parse_blueprint(dec_desc)
         
         # Keep track of space-time up/down factors
         enc_fact = prod(enc.factor for enc in self.enc_layers if isinstance(enc, (Downsample, Upsample)))

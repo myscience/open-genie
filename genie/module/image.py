@@ -101,7 +101,7 @@ class SpaceDownsample(nn.Module):
     ) -> Tensor:
         return self.go_up(inp)
 
-class ResidualBlock(nn.Module):
+class ImageResidualBlock(nn.Module):
     
     def __init__(
         self,

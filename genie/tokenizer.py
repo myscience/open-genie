@@ -14,15 +14,10 @@ from lightning import LightningModule
 
 from genie.module.loss import GANLoss
 from genie.module.loss import PerceptualLoss
-from genie.module.norm import AdaptiveGroupNorm
 from genie.module.quantization import LookupFreeQuantization
-from genie.module.video import CausalConv3d
-from genie.module.video import DepthToSpaceTimeUpsample
-from genie.module.video import DepthToSpaceUpsample
-from genie.module.video import DepthToTimeUpsample
-from genie.module.video import ResidualBlock
-from genie.module.video import SpaceTimeDownsample
 from genie.utils import Blueprint, default, exists
+
+from genie.module import parse_blueprint
 
 OptimizerCallable = Callable[[Iterable], Optimizer]
 
@@ -164,30 +159,21 @@ MAGVIT2_DEC_DESC = (
     })
 )
 
-def get_module(name : str) -> nn.Module:
-    match name:
-        case 'residual':
-            return ResidualBlock
-        case 'causal':
-            return CausalConv3d
-        case 'space_upsample':
-            return DepthToSpaceUpsample
-        case 'time_upsample':
-            return DepthToTimeUpsample
-        case 'spacetime_upsample':
-            return DepthToSpaceTimeUpsample
-        case 'spacetime_downsample':
-            return SpaceTimeDownsample
-        case 'adaptive_group_norm':
-            return AdaptiveGroupNorm
-        case 'proj_out':
-            return lambda *args, **kwargs: nn.Sequential(
-                nn.GroupNorm(kwargs.pop('num_groups', 1), kwargs.get('in_channels')),
-                nn.SiLU(),
-                CausalConv3d(**kwargs)
-            )
-        case _:
-            raise ValueError(f'Unknown module name: {name}')
+REPR_TOK_ENC = (
+    ('space-time_attn', {
+        'n_repr' : 8,
+        'n_heads': 8,
+        'd_head': 64,
+    }),
+)
+
+REPR_TOK_DEC = (
+    ('space-time_attn', {
+        'n_repr' : 8,
+        'n_heads': 8,
+        'd_head': 64,
+    }),
+)
 
 class VideoTokenizer(LightningModule):
     '''
@@ -227,38 +213,9 @@ class VideoTokenizer(LightningModule):
         
         self.optimizer = optimizer
         
-        # Scan the blueprint to build the tokenizer
-        self.enc_layers = nn.ModuleList([])
-        self.dec_layers = nn.ModuleList([])
-        self.enc_ext = list()
-        self.dec_ext = list()
-        
-        for enc_l, dec_l in zip_longest(enc_desc, dec_desc):
-            if isinstance(enc_l, str): enc_l = (enc_l, {})
-            if isinstance(dec_l, str): dec_l = (dec_l, {})
-            
-            name, kwargs = default(enc_l, (None, {}))
-            self.enc_ext.extend(
-                [kwargs.pop('has_ext', False)] * kwargs.get('n_rep', 1)
-            )
-            self.enc_layers.extend(
-                [
-                    get_module(name)(**kwargs)
-                    for _ in range(kwargs.pop('n_rep', 1))
-                    if exists(name) and exists(kwargs)
-                ]
-            )
-            name, kwargs = default(dec_l, (None, {}))
-            self.dec_ext.extend(
-                [kwargs.pop('has_ext', False)] * kwargs.get('n_rep', 1)
-            )
-            self.dec_layers.extend(
-                [
-                    get_module(name)(**kwargs)
-                    for _ in range(kwargs.pop('n_rep', 1))
-                    if exists(name) and exists(kwargs)
-                ]
-            )
+        # Scan the blueprint to build the tokenizer        
+        self.enc_layers, self.enc_ext = parse_blueprint(enc_desc)
+        self.dec_layers, self.dec_ext = parse_blueprint(dec_desc)
         
         # Check consistency between last encoder dimension, first
         # decoder dimension and the codebook dimension

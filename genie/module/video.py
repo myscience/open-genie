@@ -536,7 +536,7 @@ class BlurPooling3d(nn.Module):
     def __repr__(self):
         return f'BlurPooling3d({self.out_channels}, kernel_size={tuple(self.blur.shape)}, stride={self.stride}, padding={self.padding})'
 
-class ResidualBlock(nn.Module):
+class VideoResidualBlock(nn.Module):
     """
     A residual block module that performs residual connections and applies
     convolutional operations, with flexible options for normalization and
