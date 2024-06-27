@@ -125,7 +125,7 @@ class DynamicsModel(nn.Module):
             # We paint the t-tokens with highest confidence, excluding the
             # already predicted tokens from the mask
             conf[~mask.bool()] = -inf
-            vals, idxs = torch.topk(conf.view(b, -1), k=t, dim=-1)
+            vals, idxs = torch.topk(conf.view(b, -1), k=num_tokens, dim=-1)
             
             vals = rearrange(vals, 'b (h w) -> b h w', h=h, w=w)
             idxs = rearrange(idxs, 'b (h w) -> b h w', h=h, w=w)
