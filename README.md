@@ -212,7 +212,7 @@ Code was tested with Python 3.11+ and requires `torch 2.0+` (because of use of f
 
 # Citations
 
-This repo builds upon the beautiful MagViT implementation by [lucidrains](https://github.com/lucidrains/magvit2-pytorch/tree/main).
+This repo builds upon the beautiful MagViT implementation by [lucidrains](https://github.com/lucidrains/magvit2-pytorch/tree/main) and the MaskGIT implementation from [valeoai](https://github.com/valeoai/Maskgit-pytorch/tree/main).
 
 ```bibtex
 @article{bruce2024genie,
@@ -229,5 +229,15 @@ This repo builds upon the beautiful MagViT implementation by [lucidrains](https:
   author={Yu, Lijun and Lezama, Jos{\'e} and Gundavarapu, Nitesh B and Versari, Luca and Sohn, Kihyuk and Minnen, David and Cheng, Yong and Gupta, Agrim and Gu, Xiuye and Hauptmann, Alexander G and others},
   journal={arXiv preprint arXiv:2310.05737},
   year={2023}
+}
+```
+
+```bibtex
+@inproceedings{chang2022maskgit,
+  title={Maskgit: Masked generative image transformer},
+  author={Chang, Huiwen and Zhang, Han and Jiang, Lu and Liu, Ce and Freeman, William T},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  pages={11315--11325},
+  year={2022}
 }
 ```
