@@ -1,7 +1,7 @@
 import unittest
 import torch
 from genie.module.image import BlurPooling2d
-from genie.module.image import ResidualBlock
+from genie.module.image import ImageResidualBlock
 from genie.module.image import SpaceDownsample
 
 class TestImageModule(unittest.TestCase):
@@ -24,7 +24,7 @@ class TestImageModule(unittest.TestCase):
         num_groups = 1
         downsample = None
         batch_size = 4
-        residual_block = ResidualBlock(
+        residual_block = ImageResidualBlock(
             inp_channel,
             out_channel=out_channel,
             kernel_size=kernel_size,
@@ -44,7 +44,7 @@ class TestImageModule(unittest.TestCase):
         num_groups = 1
         downsample = 2
         batch_size = 4
-        residual_block = ResidualBlock(
+        residual_block = ImageResidualBlock(
             inp_channel,
             out_channel=out_channel,
             kernel_size=kernel_size,

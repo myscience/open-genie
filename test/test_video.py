@@ -6,7 +6,7 @@ from genie.module.video import DepthToSpaceUpsample
 from genie.module.video import DepthToTimeUpsample
 from genie.module.video import SpaceTimeDownsample
 from genie.module.video import SpaceTimeUpsample
-from genie.module.video import ResidualBlock
+from genie.module.video import VideoResidualBlock
 
 class TestVideoModule(unittest.TestCase):
     def test_causal_conv3d(self):
@@ -95,7 +95,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_residual_block(self):
         # Create a ResidualBlock instance
-        block = ResidualBlock(
+        block = VideoResidualBlock(
             in_channels=64,
             out_channels=128,
         )
@@ -111,7 +111,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_residual_block_causal(self):
         # Create a ResidualBlock instance
-        block = ResidualBlock(
+        block = VideoResidualBlock(
             in_channels=64,
             out_channels=128,
             num_groups=2,
@@ -129,7 +129,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_residual_block_downsample(self):
         # Create a ResidualBlock instance
-        block = ResidualBlock(
+        block = VideoResidualBlock(
             in_channels=64,
             out_channels=128,
             downsample=(2, 4),
@@ -147,7 +147,7 @@ class TestVideoModule(unittest.TestCase):
         
     def test_residual_block_causal_downsample(self):
         # Create a ResidualBlock instance
-        block = ResidualBlock(
+        block = VideoResidualBlock(
             in_channels=64,
             out_channels=128,
             num_groups=2,

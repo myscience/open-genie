@@ -5,48 +5,47 @@ import torch
 from genie import VideoTokenizer
 
 TEST_ENC_DESC = (
-    ('causal', {
+    ('causal-conv3d', {
         'in_channels': 3,
         'out_channels': 64,
         'kernel_size': 3,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 64,
         'kernel_size': 3,
         'downsample': (1, 2),
         'use_causal': True,
         'use_blur': True,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 64,
         'out_channels': 128,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 2,
         'in_channels': 128,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 128,
         'out_channels': 256,
         'kernel_size': 3,
         'downsample': 2,
         'use_causal': True,
     }),
-    ('proj_out', {
+    ('causal-conv3d', {
         'in_channels': 256,
         'out_channels': 18,
-        'num_groups': 8,
         'kernel_size': 3,
     })
 )
 
 TEST_DEC_DESC = (
-    ('causal', {
+    ('causal-conv3d', {
         'in_channels': 18,
         'out_channels': 128,
         'kernel_size': 3,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 2,
         'in_channels': 128,
     }),
@@ -56,11 +55,11 @@ TEST_DEC_DESC = (
         'has_ext' : True,
         'dim_cond' : 18,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 2,
         'in_channels': 128,
     }),
-    ('spacetime_upsample', {
+    ('depth2spacetime_upsample', {
         'in_channels': 128,
         'kernel_size': 3,
         'time_factor': 2,
@@ -72,15 +71,15 @@ TEST_DEC_DESC = (
         'has_ext' : True,
         'dim_cond' : 18,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 128,
         'out_channels': 64,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 2,
         'in_channels': 64,
     }),
-    ('spacetime_upsample', {
+    ('depth2spacetime_upsample', {
         'in_channels': 64,
         'kernel_size': 3,
         'time_factor': 1,
@@ -92,10 +91,9 @@ TEST_DEC_DESC = (
         'has_ext' : True,
         'dim_cond' : 18,
     }),
-    ('proj_out', {
+    ('causal-conv3d', {
         'in_channels': 64,
         'out_channels': 3,
-        'num_groups': 8,
         'kernel_size': 3,
     })
 )
@@ -186,7 +184,7 @@ class TestVideoTokenizer(unittest.TestCase):
         ))  # Check output shape
         
     def test_tokenize(self):
-        tokens, _ = self.tokenizer.tokenize(self.video)
+        tokens, idxs = self.tokenizer.tokenize(self.video)
         self.assertEqual(tokens.shape, (
             self.batch_size, 
             self.d_codebook,
@@ -194,6 +192,13 @@ class TestVideoTokenizer(unittest.TestCase):
             self.img_h // self.space_down,
             self.img_w // self.space_down,
         )) # Check output shape
+        
+        self.assertEqual(idxs.shape, (
+            self.batch_size,
+            self.num_frames // self.time_down,
+            self.img_h // self.space_down,
+            self.img_w // self.space_down,
+        ))
 
     def test_forward(self):
         loss, aux_losses = self.tokenizer(self.video)

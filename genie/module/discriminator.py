@@ -8,8 +8,8 @@ from math import prod
 
 from genie.module.misc import ForwardBlock
 from genie.module.video import CausalConv3d
-from genie.module.image import ResidualBlock as ImageResidualBlock
-from genie.module.video import ResidualBlock as VideoResidualBlock
+from genie.module.image import ImageResidualBlock
+from genie.module.video import VideoResidualBlock
 
 from genie.module.attention import SpatialAttention
 from genie.utils import default

@@ -105,7 +105,6 @@ class LookupFreeQuantization(nn.Module):
         
         # NOTE: Squeeze to remove the n_codebook dimension
         idxs = unpack(idxs, ps, 'b * d')[0].squeeze()
-        idxs = rearrange(idxs, 'b ... d -> b d ...') if transpose else idxs
         
         # No need to compute the loss if we are not training
         if not self.training: return (out, idxs), None

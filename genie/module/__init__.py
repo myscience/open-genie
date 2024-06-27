@@ -1,24 +1,24 @@
 from typing import List, Tuple
 import torch.nn as nn
 
-from attention import SpaceTimeAttention
-from attention import SpatialAttention
-from attention import TemporalAttention
+from .attention import SpaceTimeAttention
+from .attention import SpatialAttention
+from .attention import TemporalAttention
 
 from genie.utils import Blueprint, default, exists
-from image import BlurPooling2d
-from image import SpaceDownsample
-from image import ImageResidualBlock
+from .image import BlurPooling2d
+from .image import SpaceDownsample
+from .image import ImageResidualBlock
 
-from norm import AdaptiveGroupNorm
+from .norm import AdaptiveGroupNorm
 
-from video import CausalConv3d
-from video import VideoResidualBlock
-from video import CausalConvTranspose3d
-from video import DepthToSpaceTimeUpsample
-from video import DepthToSpaceUpsample
-from video import DepthToTimeUpsample
-from video import SpaceTimeDownsample
+from .video import CausalConv3d
+from .video import VideoResidualBlock
+from .video import CausalConvTranspose3d
+from .video import DepthToSpaceTimeUpsample
+from .video import DepthToSpaceUpsample
+from .video import DepthToTimeUpsample
+from .video import SpaceTimeDownsample
 
 def get_module(name : str) -> nn.Module:
     match name:
