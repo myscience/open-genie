@@ -251,6 +251,7 @@ class SpatialAttention(Attention):
         scale : float | None = None,
         causal : bool = False,
         dropout : float = 0.0,
+        transpose : bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -266,16 +267,22 @@ class SpatialAttention(Attention):
         
         # Use 2d-rotary embedding for spatial attention
         self.embed = RotaryEmbedding(n_embd, kind='2d') if embed else nn.Identity()
+        
+        self.transpose = transpose
     
     def forward(
         self,
         video : Tensor,
         cond : Tensor | None = None,
-        mask: Tensor | None = None
+        mask: Tensor | None = None,
+        transpose: bool | None = None,
     ) -> Tensor:
-        b, c, *t, h, w = video.shape
+        transpose = default(transpose, self.transpose)
         
-        inp = rearrange(video, 'b c ... h w -> b ... h w c')
+        pattern = 'b c ... h w' if transpose else 'b ... h w c'
+        inp = rearrange(video, f'{pattern} -> b ... h w c')
+        b, *t, h, w, c = video.shape
+        
         inp, t_ps = pack([inp], '* h w c')        
         inp, s_ps = pack([inp], 'b * c')
         
@@ -291,7 +298,7 @@ class SpatialAttention(Attention):
         out = unpack(out, s_ps, 'b * c')[0]
         out = unpack(out, t_ps, '* h w c')[0]
         
-        return rearrange(out, 'b ... h w c -> b c ... h w', b=b, h=h, w=w)
+        return rearrange(out, f'b ... h w c -> {pattern}', b=b, h=h, w=w)
 
 class TemporalAttention(Attention):
     '''
@@ -310,6 +317,7 @@ class TemporalAttention(Attention):
         scale : float | None = None,
         causal : bool = False,
         dropout : float = 0.0,
+        transpose : bool = False,
         **kwargs,
     ) -> None:
         super().__init__(n_embd,
@@ -324,16 +332,22 @@ class TemporalAttention(Attention):
         
         # Use 1d-rotary embedding for temporal attention
         self.embed = RotaryEmbedding(n_embd, kind='1d') if embed else nn.Identity()
+        
+        self.transpose = transpose
     
     def forward(
         self,
         video : Tensor,
         cond : Tensor | None = None,
-        mask : Tensor | None = None
+        mask : Tensor | None = None,
+        transpose : bool | None = None,
     ) -> Tensor:
-        b, *_, h, w = video.shape
+        transpose = default(transpose, self.transpose)
         
-        inp = rearrange(video, 'b c t h w -> (b h w) t c')
+        pattern = 'b c t h w' if transpose else 'b t h w c'
+        inp = rearrange(video, f'{pattern} -> b h w t c')
+        b, h, w, *_ = inp.shape
+        inp, ps = pack([inp], '* t c')
         
         # We expect the condition to be time-wise, i.e. of shape (batch, time, feat)
         cond = repeat(cond, 'b t c -> (b h w) t c', h=h, w=w) if exists(cond) else None
@@ -344,7 +358,8 @@ class TemporalAttention(Attention):
             mask=mask,
         )
         
-        return rearrange(out, '(b h w) t c -> b c t h w', b=b, h=h, w=w)
+        out = unpack(out, ps, '* t c')[0]
+        return rearrange(out, f'b h w t c -> {pattern}')
     
 class SpaceTimeAttention(nn.Module):
     
@@ -359,6 +374,7 @@ class SpaceTimeAttention(nn.Module):
         scale : float | None = None,
         dropout : float = 0.0,
         kernel_size : int = 3,
+        transpose : bool = False,
         time_attn_kw : dict = {},
         space_attn_kw : dict = {},
     ) -> None:
@@ -380,6 +396,7 @@ class SpaceTimeAttention(nn.Module):
             embed=embed[0],
             causal=False,
             dropout=dropout,
+            transpose=transpose,
             **space_attn_kw,
         )
         
@@ -393,6 +410,7 @@ class SpaceTimeAttention(nn.Module):
             # * Causal attention for temporal attention
             causal=True, 
             dropout=dropout,
+            transpose=transpose,
             **time_attn_kw,
         )
         
@@ -405,6 +423,13 @@ class SpaceTimeAttention(nn.Module):
             block=nn.Conv3d,
             kernel_size=kernel_size,
             padding=(kernel_size - 1) // 2,
+        )
+        
+        pattern = 'b c t h w' if transpose else 'b t h w c'
+        self.ffn = nn.Sequential(
+            Rearrange(f'{pattern} -> b c t h w'),
+            self.ffn,
+            Rearrange(f'b c t h w -> {pattern}'),
         )
         
     def forward(

@@ -1,12 +1,14 @@
-from math import inf, pi
+from math import inf, pi, prod
 from typing import Literal
-from einops import pack, rearrange, unpack
 import torch
 import torch.nn as nn
 from torch import Tensor, softmax
 from torch.nn.functional import cross_entropy
 
-from genie.utils import Blueprint, exists
+from einops import pack, rearrange, unpack
+from einops.layers.torch import Rearrange
+
+from genie.utils import Blueprint, default, exists
 from genie.module import parse_blueprint
 
 class DynamicsModel(nn.Module):
@@ -19,22 +21,30 @@ class DynamicsModel(nn.Module):
     def __init__(
         self,
         desc: Blueprint,
-        vocab_size: int,
-        d_codebook: int,
+        tok_vocab: int,
+        act_vocab: int,
+        embed_dim: int,
     ) -> None:
         super().__init__()
         
         self.dec_layers, self.ext_kw = parse_blueprint(desc)
         
-        self.embed = nn.Embedding(d_codebook, vocab_size)
-        self.head = nn.Linear(vocab_size, vocab_size)
+        self.head = nn.Linear(embed_dim, tok_vocab)
         
-        self.vocab_size = vocab_size
+        self.tok_emb = nn.Embedding(tok_vocab, embed_dim)
+        self.act_emb = nn.Sequential(
+            nn.Embedding(act_vocab, embed_dim),
+            Rearrange('b t d -> b t 1 1 d'),
+        )
+        
+        self.tok_vocab = tok_vocab
+        self.act_vocab = act_vocab
+        self.embed_dim = embed_dim
         
     def forward(
         self,
-        prev_tok : Tensor,
-        act_idxs : Tensor,
+        tokens : Tensor,
+        act_id : Tensor,
     ) -> Tensor:
         '''
         Predicts the next video token based on the previous tokens
@@ -42,36 +52,46 @@ class DynamicsModel(nn.Module):
         
         # Actions are quantized, use them as additive embeddings to tokens
         # Token have shape (batch, seq_len, token_dim)
-        pred_tok = prev_tok + self.embed(act_idxs)
+        tokens = self.tok_emb(tokens) + self.act_emb(act_id)
         
         # Predict the next video token based on previous tokens and actions
         for dec, has_ext in zip(self.dec_layers, self.ext_kw):
-            pred_tok = dec(pred_tok)
-            
-        # Compute the next token probability
-        logits = self.head(pred_tok)
+            tokens = dec(tokens)
         
-        return logits
+        # Compute the next token probability
+        logits = self.head(tokens)
+        
+        return logits, logits[:, -1]
     
     def compute_loss(
         self,
         tokens : Tensor,
-        tok_id : Tensor,
         act_id : Tensor,
         mask : Tensor | None = None,
         fill : float = 0.,
     ) -> Tensor:
         
+        b, t, h, w = tokens.shape
+        
+        # Create Bernoulli mask if not provided
+        mask = default(mask, torch.distributions.Bernoulli(
+            torch.empty(1).uniform_(0.5, 1).item() # Random rate in [0.5, 1]
+            ).sample((b, t, h, w)).bool()
+        )
+        
         # Mask tokens based on external mask as training signal
-        if exists(mask):
-            pred_tok = torch.masked_fill(pred_tok, rearrange(mask, 'n -> 1 n 1'), fill)
+        tokens = torch.masked_fill(tokens, mask, fill)
         
         # Compute the model prediction for the next token
-        logits = self(tokens, act_id)
+        logits, _ = self(tokens, act_id.detach())
+        
+        # Only compute loss on the tokens that were masked
+        logits = logits[mask.squeeze()]
+        tokens = tokens[mask.squeeze()]
         
         # Rearrange tokens to have shape (batch * seq_len, vocab_size)
-        logits = rearrange(logits[:, :-1], 'b n v -> (b s) v')
-        target = rearrange(tok_id[:, +1:], 'b n   -> (b s)')
+        logits = rearrange(logits, '... d -> (...) d')
+        target = rearrange(tokens, '...   -> (...)')
         
         # Compute the cross-entropy loss between the predicted and actual tokens
         loss = cross_entropy(logits, target)
@@ -81,69 +101,78 @@ class DynamicsModel(nn.Module):
     @torch.no_grad()
     def generate(
         self,
-        prev_tok : Tensor,
-        act_idxs : Tensor,
+        tokens : Tensor,
+        act_id : Tensor,
         steps : int = 10,
         which : Literal['linear', 'cosine', 'arccos'] = 'linear',
         temp : float = 1.,
         topk : int = 50,
-        masked_tok : float = 0,
+        masked_tok : int = 0,
     ) -> Tensor:
         '''
         Given past token and action history, predicts the next token
         via the Mask-GIT sampling technique.
         '''
-        b, d, t, h, w = prev_tok.shape
+        b, t, h, w = tokens.shape
         
         # Get the sampling schedule
-        schedule = self.get_schedule(steps, which=which)
+        schedule = self.get_schedule(steps, shape=(h, w), which=which)
         
         # Initialize a fully active mask to signal that all the tokens
         # must receive a prediction. The mask will be updated at each
         # step based on the sampling schedule.
-        mask = torch.ones(b, h, w, dtype=bool, device=prev_tok.device)
-        code = torch.full((b, d, h, w), masked_tok, device=prev_tok.device)
+        mask = torch.ones(b, h, w, dtype=bool, device=tokens.device)
+        code = torch.full((b, h, w), masked_tok, device=tokens.device)
+        mock = torch.zeros(b, dtype=int, device=tokens.device)
         
-        tokens, ps = pack([prev_tok, code], 'b d * h w')
+        tok_id, ps = pack([tokens, code], 'b * h w')
+        act_id, _ = pack([act_id, mock], 'b *')
         
         for num_tokens in schedule:
             # If no more tokens to predict, return
             if mask.sum() == 0: break
             
             # Get prediction for the next tokens
-            logits = self(tokens, act_idxs)
+            _, logits = self(tok_id, act_id)
             
-            # Get the logits for the last time-step token
-            _, logits = unpack(logits, ps, 'b d * h w -> b d * h w')
-            
-            logits = rearrange(logits, 'b d h w -> b h w d')
             # Refine the mask based on the sampling schedule
             prob = softmax(logits / temp, dim=-1)
-            idxs = torch.multinomial(prob, num_samples=1, replacement=True).squeeze()
-            conf = torch.gather(prob, -1, idxs)
+            prob, ps = pack([prob], '* d')
+            pred = torch.multinomial(prob, num_samples=1)
+            conf = torch.gather(prob, -1, pred)
+            conf = unpack(conf, ps, '* d')[0].squeeze()
             
-            # We paint the t-tokens with highest confidence, excluding the
+            # We paint the k-tokens with highest confidence, excluding the
             # already predicted tokens from the mask
             conf[~mask.bool()] = -inf
-            vals, idxs = torch.topk(conf.view(b, -1), k=num_tokens, dim=-1)
+            idxs = torch.topk(conf.view(b, -1), k=num_tokens, dim=-1).indices
             
-            vals = rearrange(vals, 'b (h w) -> b h w', h=h, w=w)
-            idxs = rearrange(idxs, 'b (h w) -> b h w', h=h, w=w)
+            code, cps = pack([code], 'b *')
+            mask, mps = pack([mask], 'b *')
+            pred = pred.view(b, -1)
             
             # Fill the code with sampled tokens & update mask
+            vals = torch.gather(pred, -1, idxs).to(code.dtype)
             code.scatter_(1, idxs, vals)
-            mask[idxs] = False
+            mask.scatter_(1, idxs, False)
             
-            tokens, ps = pack([prev_tok, code], 'b d * h w')
-        
-        return tokens
+            code = unpack(code, cps, 'b *')[0]
+            mask = unpack(mask, mps, 'b *')[0]
+            
+            pred_tok, ps = pack([tokens, code], 'b * h w')
+            
+        assert mask.sum() == 0, f'Not all tokens were predicted. {mask.sum()} tokens left.'
+        return pred_tok
     
     def get_schedule(
         self,
         steps: int,
+        shape: tuple[int, int],
         which: Literal['linear', 'cosine', 'arccos'] = 'linear',
     ) -> Tensor:
+        n = prod(shape)
         t = torch.linspace(1, 0, steps)
+        
         
         match which:
             case 'linear':
@@ -156,11 +185,11 @@ class DynamicsModel(nn.Module):
                 raise ValueError(f'Unknown schedule type: {which}')
         
         # Fill the schedule with the ratio of tokens to predict
-        schedule = (s / s.sum()) * self.vocab_size
+        schedule = (s / s.sum()) * n
         schedule = schedule.round().int().clamp(min=1)
         
         # Make sure that the total number of tokens to predict is
         # equal to the vocab size
-        schedule[-1] += self.vocab_size - schedule.sum()
+        schedule[-1] += n - schedule.sum()
         
         return schedule
