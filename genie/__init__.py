@@ -3,6 +3,7 @@ from genie.tokenizer import MAGVIT2_ENC_DESC
 from genie.tokenizer import MAGVIT2_DEC_DESC
 
 from genie.action import LatentAction
+from genie.dynamics import DynamicsModel
 
 LATENT_ACT_ENC = (
     ('space-time_attn', {

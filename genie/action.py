@@ -100,7 +100,13 @@ class LatentAction(nn.Module):
             diversity_weight = lfq_diversity_weight,
         )
         
+        self.d_codebook = d_codebook
+        self.n_codebook = n_codebook
         self.quant_loss_weight = quant_loss_weight
+        
+    def sample(self, idxs : Tensor) -> Tensor:
+        '''Sample the action codebook values based on the indices.'''
+        return self.quant.codebook[idxs]
         
     def encode(
         self,
@@ -120,7 +126,7 @@ class LatentAction(nn.Module):
         # Quantize the latent actions
         (act, idxs), q_loss = self.quant(act, transpose=transpose)
         
-        return (act, video), q_loss
+        return (act, idxs, video), q_loss
     
     def decode(
         self,
@@ -149,7 +155,7 @@ class LatentAction(nn.Module):
     ) -> Tuple[Tensor, Tensor]:
         
         # Encode the video frames into latent actions
-        (act, enc_video), q_loss = self.encode(video, mask=mask)
+        (act, idxs, enc_video), q_loss = self.encode(video, mask=mask)
         
         # Decode the last video frame based on all the previous
         # frames and the quantized latent actions
@@ -164,7 +170,7 @@ class LatentAction(nn.Module):
         loss = rec_loss\
             + q_loss * self.quant_loss_weight
         
-        return recon, loss, (
+        return idxs, loss, (
             rec_loss,
             q_loss,
         )

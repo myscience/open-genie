@@ -130,7 +130,7 @@ class TestLatentAction(unittest.TestCase):
         )
 
         video = torch.randn(1, self.inp_channels, 16, *self.inp_shape)
-        recon, loss, aux_losses = model(video)
+        idxs, loss, aux_losses = model(video)
 
         self.assertEqual(loss.shape, ())
         self.assertTrue(loss >= 0)

@@ -1,14 +1,14 @@
-from math import inf, pi, prod
-from typing import Literal
 import torch
 import torch.nn as nn
+from typing import Literal
+from math import inf, pi, prod
 from torch import Tensor, softmax
 from torch.nn.functional import cross_entropy
 
 from einops import pack, rearrange, unpack
 from einops.layers.torch import Rearrange
 
-from genie.utils import Blueprint, default, exists
+from genie.utils import Blueprint, default
 from genie.module import parse_blueprint
 
 class DynamicsModel(nn.Module):
