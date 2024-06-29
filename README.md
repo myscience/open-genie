@@ -198,11 +198,64 @@ assert recon.shape == (batch_size, 3, video_len, *frame_dim)
 loss.backward()
 ```
 
+## Dynamics Model
+
+The `DynamicsModel` is tasked to predict the next video token based on past video token and latent action histories. The architecture is based on the `MaskGIT` model from [Chang et al, (2022)](https://arxiv.org/abs/2202.04200). Here is an example code to highlight the core components:
+
+```python
+from genie import DynamicsModel
+
+blueprint = (
+  # Describe a Space-Time Transformer
+  ('space-time_attn', {
+      'n_rep' : 4,     # Number of layers
+      'n_embd' : 256,  # Hidden dimension
+      'n_head' : 4,    # Number of attention heads
+      'd_head' : 16,   # Dimension of each attention head
+      'transpose' : False,
+  }),
+)
+
+# Create the model
+tok_codebook = 16 # Dimension of video tokenizer codebook
+act_codebook =  4 # Dimension of latent action codebook
+dynamics = DynamicsModel(
+    desc=blueprint,
+    tok_vocab=tok_codebook,
+    act_vocab=act_codebook,
+    embed_dim=256,          # Hidden dimension of the model
+)
+
+batch_size = 2
+num_frames = 16
+img_size   = 32
+
+# Create mock token and latent action inputs
+mock_tokens = torch.randint(0, tok_codebook, (batch_size, num_frames, img_size, img_size))
+mock_act_id = torch.randint(0, act_codebook, (batch_size, num_frames))
+
+# Compute the reconstruction loss based on Bernoulli
+# masking of input tokens
+loss = dynamics.compute_loss(
+    mock_tokens,
+    mock_act_id,
+)
+
+# Generate the next video token
+new_tokens = dynamics.generate(
+    mock_tokens,
+    mock_act_id,
+    steps=5, # Number of MaskGIT sampling steps
+)
+
+assert new_tokes.shape == (batch_size, num_frame + 1, img_size, img_size)
+```
+
 # Roadmap
 
 - [x] Implement the video-tokenizer. Use the MagViT-2 tokenizer as described in [Yu et al., (2023)](https://magvit.cs.cmu.edu/v2/).
 - [x] Implement the Latent Action Model, a Vector-Quantized ST-Transformer. Predict game-action from past video frames.
-- [ ] Implement the Dynamics Model, which takes past frames and actions and produces the new video frame.
+- [x] Implement the Dynamics Model, which takes past frames and actions and produces the new video frame.
 - [ ] Add functioning training script (Lightning).
 - [ ] Show some results.
 
