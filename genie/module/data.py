@@ -224,4 +224,6 @@ class Platformer2D(Dataset):
         video = torch.stack(frames) / 255.
         video = rearrange(video, f't h w c -> {self.output_format}')
         
+        video = self.transform(video)
+        
         return video
