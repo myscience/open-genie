@@ -318,6 +318,8 @@ class VideoTokenizer(LightningModule):
             transpose=transpose
         )
         
+        self.train()
+        
         return quant_video, idxs
     
     def forward(
@@ -347,14 +349,14 @@ class VideoTokenizer(LightningModule):
             + gen_loss   * self.gan_loss_weight\
             + dis_loss   * self.gan_loss_weight\
             + perc_loss  * self.perc_loss_weight\
-            + quant_loss * self.quant_loss_weight\
+            + (quant_loss * self.quant_loss_weight) if exists(quant_loss) else 0\
         
         return loss, (
             rec_loss,
-            gen_loss if self.gan_loss_weight > 0 else None,
-            dis_loss if self.gan_loss_weight > 0 else None,
-            perc_loss if self.perc_loss_weight > 0 else None,
-            quant_loss
+            gen_loss if self.gan_loss_weight > 0 else 0,
+            dis_loss if self.gan_loss_weight > 0 else 0,
+            perc_loss if self.perc_loss_weight > 0 else 0,
+            quant_loss if exists(quant_loss) and self.quant_loss_weight > 0 else 0,
         )
     
     # * Lightning core functions

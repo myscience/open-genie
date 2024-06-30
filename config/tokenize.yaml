@@ -2,23 +2,27 @@ seed_everything: 31415
 
 model:
   enc_desc:
+    - - spacetime_downsample
+      - in_channels : 3
+        kernel_size : 3
+        out_channels : 64
+        time_factor : 1
+        space_factor : 2
     - - space-time_attn
-      - n_head: 8
-        d_head: 64
-        d_inp: 3
-    - - space-time_attn
-      - n_rep: 7
+      - n_rep: 8
         n_head: 8
         d_head: 64
   dec_desc:
     - - space-time_attn
-      - n_rep: 7
+      - n_rep: 8
         n_head: 8
         d_head: 64
-    - - space-time_attn
-      - n_head: 8
-        d_head: 64
-        d_out: 3
+    - - depth2spacetime_upsample
+      - in_channels : 64
+        kernel_size : 3
+        out_channels : 3
+        time_factor : 1
+        space_factor : 2
   disc_kwargs:
     inp_size: [64, 64] # Size of input frames
     model_dim: 64 # Dimension of the model

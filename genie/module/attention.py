@@ -61,7 +61,7 @@ class RotaryEmbedding(nn.Module):
         
         freq = einsum(pos, freq, '..., f -> ... f')
         freq = repeat(freq, '... n -> ... (n r)', r = 2)
-
+        
         if seq_dim == -3: freq = rearrange(freq, 'n d -> n 1 d')
         
         # Apply rotary embedding
@@ -304,7 +304,7 @@ class SpatialAttention(Attention):
         out = unpack(out, s_ps, 'b * c')[0]
         out = unpack(out, t_ps, '* h w c')[0]
         
-        return rearrange(out, f'b ... h w c -> {pattern}', b=b, h=h, w=w)
+        return rearrange(out, f'b ... h w c -> {pattern}')
 
 class TemporalAttention(Attention):
     '''

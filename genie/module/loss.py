@@ -5,7 +5,7 @@ from torchvision.models import get_model
 
 from torch.nn.functional import relu
 from torch.nn.functional import mse_loss
-
+from torch.nn.modules.loss import _Loss
 from typing import Iterable, Tuple
 
 from genie.module.misc import NamingProbe
@@ -31,7 +31,7 @@ VGG16_RELU_LAYERS = [
     'classifier.4',
 ]
 
-class PerceptualLoss(nn.Module):
+class PerceptualLoss(_Loss):
     
     def __init__(
         self,
@@ -106,7 +106,7 @@ class PerceptualLoss(nn.Module):
         for handle in self.hook_handles:
             handle.remove()
 
-class GANLoss(nn.Module):
+class GANLoss(_Loss):
     
     def __init__(
         self,

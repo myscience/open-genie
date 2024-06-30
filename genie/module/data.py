@@ -107,7 +107,9 @@ class LightningDataset(LightningDataModule):
     def val_dataloader(self) -> DataLoader:
         if isinstance(self.train_dataset, IterableDataset):
             worker_init_fn = default(self.worker_init_fn, default_iterdata_worker_init)
-        
+        else:
+            worker_init_fn = self.worker_init_fn
+            
         return DataLoader(
             self.valid_dataset,                  # type: ignore
             sampler        = self.valid_sampler, # type: ignore
@@ -121,6 +123,8 @@ class LightningDataset(LightningDataModule):
     def test_dataloader(self) -> DataLoader:
         if isinstance(self.train_dataset, IterableDataset):
             worker_init_fn = default(self.worker_init_fn, default_iterdata_worker_init)
+        else:
+            worker_init_fn = self.worker_init_fn
             
         return DataLoader(
             self.test__dataset,                  # type: ignore
