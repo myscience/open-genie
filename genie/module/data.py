@@ -91,6 +91,8 @@ class LightningDataset(LightningDataModule):
     def train_dataloader(self) -> DataLoader:
         if isinstance(self.train_dataset, IterableDataset):
             worker_init_fn = default(self.worker_init_fn, default_iterdata_worker_init)
+        else:
+            worker_init_fn = self.worker_init_fn
         
         return DataLoader(
             self.train_dataset,                  # type: ignore
@@ -145,7 +147,7 @@ class Platformer2D(Dataset):
     ) -> None:
         super().__init__()
         
-        self.root = path.join(root, env_name)
+        self.root = path.join(root, env_name, split)
         self.split = split
         self.padding = padding
         self.randomize = randomize
@@ -154,7 +156,6 @@ class Platformer2D(Dataset):
         self.transform = transform if exists(transform) else lambda x: x
         
         # Get all the file path based on the split
-        # ! FIXME: No use is made of the split variable at the moment!
         self.file_names = [
             path.join(self.root, f)
             for f in listdir(self.root)

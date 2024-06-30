@@ -52,7 +52,7 @@ class TestAttentionModule(unittest.TestCase):
     def test_spatial_attention_image(self):
         # Test SpatialAttention class
         attn = SpatialAttention(
-            n_embd = self.n_embd,
+            d_inp = self.n_embd,
             n_head = self.n_head,
             d_head = self.d_head,
             bias   = self.bias,
@@ -68,7 +68,7 @@ class TestAttentionModule(unittest.TestCase):
     def test_spatial_attention_video(self):
         # Test SpatialAttention class
         attn = SpatialAttention(
-            n_embd = self.n_embd,
+            d_inp = self.n_embd,
             n_head = self.n_head,
             d_head = self.d_head,
             bias   = self.bias,

@@ -124,9 +124,9 @@ class Adapter(nn.Module):
         if issubclass(block, nn.Module):
             block = (block, block, block)
         
-        self.to_q = block[0](qry_dim, n_head * d_head, bias=bias, **qry_kwargs)
-        self.to_k = block[1](key_dim, n_head * d_head, bias=bias, **key_kwargs)
-        self.to_v = block[2](val_dim, n_head * d_head, bias=bias, **val_kwargs)
+        self.to_q = block[0](qry_dim, n_head * d_head, bias=bias, **qry_kwargs) if qry_dim != n_head * d_head else nn.Identity()
+        self.to_k = block[1](key_dim, n_head * d_head, bias=bias, **key_kwargs) if key_dim != n_head * d_head else nn.Identity()
+        self.to_v = block[2](val_dim, n_head * d_head, bias=bias, **val_kwargs) if val_dim != n_head * d_head else nn.Identity()
         
         self.n_head = n_head
         
@@ -161,9 +161,10 @@ class Attention(nn.Module):
     
     def __init__(
         self,
-        n_embd : int,
         n_head : int,
         d_head : int,
+        d_inp : int | None = None,
+        d_out : int | None = None,
         bias : bool = False,
         scale : float | None = None,
         causal : bool = False,
@@ -172,11 +173,14 @@ class Attention(nn.Module):
     ) -> None:
         super().__init__()
         
-        self.norm = nn.LayerNorm(n_embd)
+        self.d_inp = default(d_inp, n_head * d_head)
+        self.d_out = default(d_out, self.d_inp)
+        
+        self.norm = nn.LayerNorm(n_head * d_head)
         self.embed = nn.Identity()
         
         self.to_qkv = Adapter(
-            qry_dim=n_embd,
+            qry_dim=self.d_inp,
             n_head=n_head,
             d_head=d_head,
             bias=bias,
@@ -185,10 +189,10 @@ class Attention(nn.Module):
         
         self.to_out = nn.Sequential(
             Rearrange('b h n d -> b n (h d)'),
-            nn.Linear(n_head * d_head, n_embd, bias=bias),
+            nn.Linear(n_head * d_head, self.d_out, bias=bias) if self.d_out != n_head * d_head else nn.Identity(),
         )
         
-        self.scale = default(scale, n_embd ** -0.5)
+        self.scale = default(scale, n_head * d_head ** -0.5)
         self.causal = causal
         self.dropout = dropout
         
@@ -212,8 +216,8 @@ class Attention(nn.Module):
                 (batch_size, sequence_length, embedding_size).
         '''
         
-        qry = self.norm(qry)
         qry = self.embed(qry)
+        qry = self.norm(qry)
         
         key = default(key, qry)
         val = default(val, key)
@@ -243,9 +247,10 @@ class SpatialAttention(Attention):
     
     def __init__(
         self,
-        n_embd : int,
         n_head : int,
         d_head : int,
+        d_inp : int | None = None,
+        d_out : int | None = None,
         bias : bool = False,
         embed : bool = True,
         scale : float | None = None,
@@ -255,9 +260,10 @@ class SpatialAttention(Attention):
         **kwargs,
     ) -> None:
         super().__init__(
-            n_embd,
             n_head,
             d_head,
+            d_inp,
+            d_out,
             bias,
             scale,
             causal,
@@ -266,7 +272,7 @@ class SpatialAttention(Attention):
         )
         
         # Use 2d-rotary embedding for spatial attention
-        self.embed = RotaryEmbedding(n_embd, kind='2d') if embed else nn.Identity()
+        self.embed = RotaryEmbedding(self.d_inp, kind='2d') if embed else nn.Identity()
         
         self.transpose = transpose
     
@@ -309,9 +315,10 @@ class TemporalAttention(Attention):
     
     def __init__(
         self,
-        n_embd : int,
         n_head : int,
         d_head : int,
+        d_inp : int | None = None,
+        d_out : int | None = None,
         bias : bool = False,
         embed : bool = True,
         scale : float | None = None,
@@ -320,9 +327,11 @@ class TemporalAttention(Attention):
         transpose : bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(n_embd,
+        super().__init__(
             n_head,
             d_head,
+            d_inp,
+            d_out,
             bias,
             scale,
             causal,
@@ -331,7 +340,7 @@ class TemporalAttention(Attention):
         )
         
         # Use 1d-rotary embedding for temporal attention
-        self.embed = RotaryEmbedding(n_embd, kind='1d') if embed else nn.Identity()
+        self.embed = RotaryEmbedding(self.d_inp, kind='1d') if embed else nn.Identity()
         
         self.transpose = transpose
     
@@ -365,9 +374,10 @@ class SpaceTimeAttention(nn.Module):
     
     def __init__(
         self,
-        n_embd : int,
         n_head : int | Tuple[int, int],
         d_head : int | Tuple[int, int],
+        d_inp : int | None = None,
+        d_out : int | None = None,
         hid_dim : int | Tuple[int, int] | None = None,
         bias : bool = False,
         embed : bool | Tuple[bool, bool] = True,
@@ -388,9 +398,10 @@ class SpaceTimeAttention(nn.Module):
             embed = (embed, embed)
         
         self.space_attn = SpatialAttention(
-            n_embd=n_embd,
             n_head=n_head[0],
             d_head=d_head[0],
+            d_inp=d_inp,
+            d_out=None,
             bias=bias,
             scale=scale,
             embed=embed[0],
@@ -401,9 +412,10 @@ class SpaceTimeAttention(nn.Module):
         )
         
         self.temp_attn = TemporalAttention(
-            n_embd=n_embd,
             n_head=n_head[1],
             d_head=d_head[1],
+            d_inp=None,
+            d_out=None,
             bias=bias,
             scale=scale,
             embed=embed[1],
@@ -415,8 +427,8 @@ class SpaceTimeAttention(nn.Module):
         )
         
         self.ffn = ForwardBlock(
-            n_embd,
-            out_dim=n_embd,
+            n_head[1] * d_head[1],
+            out_dim=d_out,
             hid_dim=hid_dim,
             num_groups=n_head[1],
             bias=bias,
@@ -432,6 +444,15 @@ class SpaceTimeAttention(nn.Module):
             Rearrange(f'b c t h w -> {pattern}'),
         )
         
+        self.in_channels  = default(d_inp, n_head[0] * d_head[0])
+        self.out_channels = default(d_out, n_head[1] * d_head[1])
+        
+        space_hid = d_head[0] * n_head[0]
+        time_hid  = d_head[1] * n_head[1]
+        self.time_skip  = nn.Identity() # Don't need this at the moment
+        self.space_skip = nn.Conv3d(d_inp, space_hid, 1) if exists(d_inp) and d_inp != space_hid else nn.Identity()
+        self.ffn_skip   = nn.Conv3d(time_hid,  d_out, 1) if exists(d_out) and time_hid != d_out  else nn.Identity()
+        
     def forward(
         self,
         video : Tensor,
@@ -446,8 +467,8 @@ class SpaceTimeAttention(nn.Module):
         # We feed the video first through the spatial attention
         # and then through the temporal attention mechanism.
         # NOTE: Positional embeddings are added within the attention
-        video = self.space_attn(video, cond=space_cond, mask=mask) + video
-        video = self.temp_attn (video, cond=time_cond , mask=mask) + video
-        video = self.ffn(video) + video
+        video = self.space_attn(video, cond=space_cond, mask=mask) + self.space_skip(video)
+        video = self.temp_attn (video, cond=time_cond , mask=mask) + self.time_skip (video)
+        video = self.ffn(video) + self.ffn_skip(video)
         
         return video

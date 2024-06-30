@@ -61,9 +61,9 @@ class FrameDiscriminator(nn.Module):
             
             attn_block = nn.ModuleList([
                 SpatialAttention(
-                    out_dim,
                     n_head=num_heads,
                     d_head=dim_head,
+                    d_inp=out_dim,
                 ),
                 ForwardBlock(
                     in_dim=out_dim,

@@ -161,19 +161,39 @@ MAGVIT2_DEC_DESC = (
 
 REPR_TOK_ENC = (
     ('space-time_attn', {
-        'n_repr' : 8,
-        'n_heads': 8,
+        'n_rep' : 8,
+        'n_embd' : 512,
+        'n_head': 8,
         'd_head': 64,
     }),
 )
 
 REPR_TOK_DEC = (
     ('space-time_attn', {
-        'n_repr' : 8,
-        'n_heads': 8,
+        'n_rep' : 8,
+        'n_embd' : 512,
+        'n_head': 8,
         'd_head': 64,
     }),
 )
+
+def get_enc(name : str) -> Blueprint:
+    match name:
+        case 'magvit2':
+            return MAGVIT2_ENC_DESC
+        case 'repr_tok':
+            return REPR_TOK_ENC
+        case _:
+            raise ValueError(f'Unknown encoder: {name}')
+
+def get_dec(name : str) -> Blueprint:
+    match name:
+        case 'magvit2':
+            return MAGVIT2_DEC_DESC
+        case 'repr_tok':
+            return REPR_TOK_DEC
+        case _:
+            raise ValueError(f'Unknown decoder: {name}')
 
 class VideoTokenizer(LightningModule):
     '''
@@ -219,15 +239,17 @@ class VideoTokenizer(LightningModule):
         
         # Check consistency between last encoder dimension, first
         # decoder dimension and the codebook dimension
-        last_enc_dim = list(self.enc_layers.modules())[-1].out_channels
+        # last_enc_dim = list(self.enc_layers.modules())[-1].out_channels
+        last_enc_dim = [m.out_channels for m in self.enc_layers.modules() if hasattr(m, 'out_channels')][-1]
         first_dec_dim = self.dec_layers[0].in_channels
         assert last_enc_dim == first_dec_dim, 'Inconsistent encoder/decoder dimensions'
-        assert last_enc_dim == d_codebook   , 'Codebook dimension mismatch with encoder/decoder'
+        # assert last_enc_dim == d_codebook   , 'Codebook dimension mismatch with encoder/decoder'
         
         # Build the quantization module
         self.quant = LookupFreeQuantization(
             d_codebook       = d_codebook,
             n_codebook       = n_codebook,
+            input_dim        = last_enc_dim,
             use_bias         = lfq_bias,
             frac_sample      = lfq_frac_sample,
             commit_weight    = lfq_commit_weight,
