@@ -1,8 +1,24 @@
 seed_everything: 31415
 
 model:
-  enc_desc: genie.tokenizer.REPR_TOK_ENC
-  dec_desc: genie.tokenizer.REPR_TOK_DEC
+  enc_desc:
+    - - space-time_attn
+      - n_head: 8
+        d_head: 64
+        d_inp: 3
+    - - space-time_attn
+      - n_rep: 7
+        n_head: 8
+        d_head: 64
+  dec_desc:
+    - - space-time_attn
+      - n_rep: 7
+        n_head: 8
+        d_head: 64
+    - - space-time_attn
+      - n_head: 8
+        d_head: 64
+        d_out: 3
   disc_kwargs:
     inp_size: [64, 64] # Size of input frames
     model_dim: 64 # Dimension of the model
@@ -41,12 +57,13 @@ model:
   quant_loss_weight: 1.
 
 data:
-  root: /path/to/data/root
+  root: path/to/data
   env_name: Coinrun
   padding: none
   randomize: true
   transform: null
   num_frames: 64
+  batch_size: 32
   output_format: c t h w
 
 trainer:
@@ -55,7 +72,9 @@ trainer:
   devices: 1
   strategy: ddp_find_unused_parameters_false
   precision: 16-mixed
-  log_every_n_steps: 1
+  log_every_n_steps: 16
+  limit_val_batches: 32
+  val_check_interval: 32
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -64,6 +83,6 @@ trainer:
   logger:
     - class_path: lightning.pytorch.loggers.TensorBoardLogger
       init_args:
-        save_dir: /path/to/save/dir
+        save_dir: path/to/log
         name: genie-tokenizer
         version: null
