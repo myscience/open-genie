@@ -1,0 +1,69 @@
+seed_everything: 31415
+
+model:
+  enc_desc: genie.tokenizer.REPR_TOK_ENC
+  dec_desc: genie.tokenizer.REPR_TOK_DEC
+  disc_kwargs:
+    inp_size: [64, 64] # Size of input frames
+    model_dim: 64 # Dimension of the model
+    dim_mults: [1, 2, 4] # Channel multipliers
+    down_step: [null, 2, 2] # Down-sampling steps
+    inp_channels: 3
+    kernel_size: 3
+    num_groups: 8
+    act_fn: leaky # Use LeakyReLU as activation function
+    use_blur: True # Use BlurPooling for down-sampling
+    use_attn: True # Discriminator can have spatial attention
+    num_heads: 4 # Number of (spatial) attention heads
+    dim_head: 32 # Dimension of each spatial attention heads
+  #
+  d_codebook: 10
+  n_codebook: 1
+  #
+  lfq_bias: True
+  lfq_frac_sample: 1
+  lfq_commit_weight: 0.25
+  lfq_entropy_weight: 0.01
+  lfq_diversity_weight: 1.
+  #
+  optimizer:
+    class_path: torch.optim.AdamW
+    init_args:
+      lr: 1e-3
+      weight_decay: 0.01
+  #
+  perceptual_model: vgg16
+  perc_feat_layers: [features.6, features.13, features.18, features.25]
+  gan_discriminate: frames
+  gan_frames_per_batch: 4
+  gan_loss_weight: 1.
+  perc_loss_weight: 1.
+  quant_loss_weight: 1.
+
+data:
+  root: /path/to/data/root
+  env_name: Coinrun
+  padding: none
+  randomize: true
+  transform: null
+  num_frames: 64
+  output_format: c t h w
+
+trainer:
+  max_epochs: 40
+  accelerator: gpu
+  devices: 1
+  strategy: ddp_find_unused_parameters_false
+  precision: 16-mixed
+  log_every_n_steps: 1
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val_loss
+        save_last: true
+  logger:
+    - class_path: lightning.pytorch.loggers.TensorBoardLogger
+      init_args:
+        save_dir: /path/to/save/dir
+        name: genie-tokenizer
+        version: null
