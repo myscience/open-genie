@@ -8,6 +8,20 @@ The goal of the model is to introduce "[...] The first generative interactive en
 
 # Usage
 
+We provide a `LightningCLI` interface to easily train the several components of the `Genie` model. In particular, to train the `VideoTokenizer` one should run the following
+
+```bash
+python tokenizer.py train -config <path_to_conf_file>
+```
+
+To train both the `LatentAction` and `Dynamics` model (use in turn would leverage a fully-trained `VideoTokenizer`), one can again simply run:
+
+```bash
+python genie.py train -config <path_to_conf_file>
+```
+
+We provide example configuration files in the `📂 config` folder.
+
 In the following sections we provide example codes for the core building blocks that together form the overall Genie module.
 
 ## VideoTokenizer
