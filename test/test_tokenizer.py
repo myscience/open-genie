@@ -1,8 +1,13 @@
+from os import path
 import unittest
-import unittest
+
 import torch
+import yaml
 
 from genie import VideoTokenizer
+from genie.dataset import LightningPlatformer2D
+from genie.tokenizer import REPR_TOK_ENC
+from genie.tokenizer import REPR_TOK_DEC
 
 TEST_ENC_DESC = (
     ('causal-conv3d', {
@@ -98,20 +103,35 @@ TEST_DEC_DESC = (
     })
 )
 
+# Loading `local_settings.json` for custom local settings
+test_folder = path.dirname(path.abspath(__file__))
+local_settings = path.join(test_folder, '.local.yaml')
+
+with open(local_settings, 'r') as f:
+    local_settings = yaml.safe_load(f)
+
 class TestVideoTokenizer(unittest.TestCase):
     def setUp(self):
         
         self.d_codebook = 18
         self.n_codebook = 1
         
-        self.batch_size = 4
-        self.num_frames = 16
+        self.batch_size = 2
+        self.num_frames = 8
         self.num_channels = 3
         self.img_h, self.img_w = 64, 64
         
+        # Number of channels after the encoding by the REPR_TOK_ENC
+        self.hid_channels = 512
+        
+        self.time_down  = 1 # This parameters are determined by REPR_TOK_ENC
+        self.space_down = 4 # This parameters are determined by REPR_TOK_ENC
+        
+        factor = 4
+        
         self.tokenizer = VideoTokenizer(
-            enc_desc = TEST_ENC_DESC,
-            dec_desc = TEST_DEC_DESC,
+            enc_desc = REPR_TOK_ENC,
+            dec_desc = REPR_TOK_DEC,
             
             disc_kwargs=dict(
                 # Discriminator parameters
@@ -121,6 +141,8 @@ class TestVideoTokenizer(unittest.TestCase):
                 down_step = (None, 2, 2),
                 inp_channels = self.num_channels,
                 kernel_size = 3,
+                use_attn = False,
+                use_blur = True,
                 num_groups = 8,
                 num_heads = 4,
                 dim_head = 32,
@@ -152,15 +174,12 @@ class TestVideoTokenizer(unittest.TestCase):
             self.img_h,
             self.img_w
         )
-        
-        self.time_down = 2
-        self.space_down = 4
 
     def test_encode(self):
         encoded = self.tokenizer.encode(self.video)
         self.assertEqual(encoded.shape, (
             self.batch_size,
-            self.d_codebook,
+            self.hid_channels,
             self.num_frames // self.time_down,
             self.img_h // self.space_down,
             self.img_w // self.space_down
@@ -169,7 +188,7 @@ class TestVideoTokenizer(unittest.TestCase):
     def test_decode(self):
         quantized = torch.randn(
             self.batch_size,
-            self.d_codebook,
+            self.hid_channels,
             self.num_frames // self.time_down,
             self.img_h // self.space_down,
             self.img_w // self.space_down,
@@ -187,11 +206,15 @@ class TestVideoTokenizer(unittest.TestCase):
         tokens, idxs = self.tokenizer.tokenize(self.video)
         self.assertEqual(tokens.shape, (
             self.batch_size, 
-            self.d_codebook,
+            self.hid_channels,
             self.num_frames // self.time_down,
             self.img_h // self.space_down,
             self.img_w // self.space_down,
         )) # Check output shape
+        
+        if self.hid_channels == 2 ** self.d_codebook:
+            # If not output projection, check that tokens have values in {-1, +1}
+            self.assertTrue(torch.allclose(tokens, torch.sign(tokens)))
         
         self.assertEqual(idxs.shape, (
             self.batch_size,
@@ -207,6 +230,35 @@ class TestVideoTokenizer(unittest.TestCase):
         for loss in aux_losses:
             self.assertEqual(loss.shape, torch.Size([]))  # Check the output shape
         
+        print(aux_losses)
+        self.assertTrue(aux_losses[0] >= 0)
+        self.assertTrue(aux_losses[2] >= 0)
+        self.assertTrue(aux_losses[3] >= 0)
+        self.assertTrue(aux_losses[4] >= 0)
+        
+    def test_forward_platformer_2d(self):
+        dataset = LightningPlatformer2D(
+            root=local_settings['platformer_remote_root'],
+            output_format='c t h w',
+            transform=None,
+            randomize=True,
+            batch_size=self.batch_size,
+            num_frames=self.num_frames,
+            num_workers=4,
+        )
+
+        dataset.setup('fit')
+        loader = dataset.train_dataloader()
+        
+        video = next(iter(loader))
+
+        loss, aux_losses = self.tokenizer(video)
+        
+        self.assertTrue(loss >= 0)
+        for loss in aux_losses:
+            self.assertEqual(loss.shape, torch.Size([]))  # Check the output shape
+        
+        print(aux_losses)
         self.assertTrue(aux_losses[0] >= 0)
         self.assertTrue(aux_losses[2] >= 0)
         self.assertTrue(aux_losses[3] >= 0)
