@@ -38,8 +38,8 @@ class LookupFreeQuantization(nn.Module):
     
     def __init__(
         self,
-        d_codebook : int,
-        n_codebook : int = 1,
+        codebook_dim : int,
+        num_codebook : int = 1,
         input_dim : int | None = None,
         use_bias : bool = True,
         frac_sample : float = 1.,
@@ -49,15 +49,18 @@ class LookupFreeQuantization(nn.Module):
     ) -> None:
         super().__init__()
         
-        input_dim = default(input_dim, d_codebook * n_codebook)
+        codebook_size = (2 ** codebook_dim) * num_codebook
+        input_dim = default(input_dim, codebook_size)
         
-        project = input_dim != d_codebook * n_codebook
+        project = input_dim != codebook_dim * num_codebook
         
-        self.proj_inp = nn.Linear(input_dim, d_codebook * n_codebook, bias=use_bias) if project else nn.Identity()
-        self.proj_out = nn.Linear(d_codebook * n_codebook, input_dim, bias=use_bias) if project else nn.Identity()
+        self.proj_inp = nn.Linear(input_dim, codebook_dim * num_codebook, bias=use_bias) if project else nn.Identity()
+        self.proj_out = nn.Linear(codebook_dim * num_codebook, input_dim, bias=use_bias) if project else nn.Identity()
         
-        self.n_codebook = n_codebook
         self.frac_sample = frac_sample
+        self.codebook_dim = codebook_dim
+        self.num_codebooks = num_codebook
+        self.codebook_size = codebook_size
         self.commit_weight = commit_weight
         self.entropy_weight = entropy_weight
         self.diversity_weight = diversity_weight
@@ -65,10 +68,10 @@ class LookupFreeQuantization(nn.Module):
         # * Initialize the codebook
         # Use the bit_mask to generate the bit-codes for all the codebook entries
         # and then convert them to the actual codebook values {-1, 1}. Resulting
-        # codebook will have shape (2 ** d_codebook, d_codebook).
-        self.register_buffer('bit_mask', 2 ** torch.arange(d_codebook - 1, -1, -1))
+        # codebook will have shape (codebook_size, d_codebook).
+        self.register_buffer('bit_mask', 2 ** torch.arange(codebook_dim - 1, -1, -1))
         
-        codes = torch.arange(2 ** d_codebook, dtype=int)[:, None] & self.bit_mask
+        codes = torch.arange(codebook_size, dtype=int)[:, None] & self.bit_mask
         self.register_buffer('codebook', 2 * (codes != 0).float() - 1, persistent=False)
         
     def forward(
@@ -85,7 +88,7 @@ class LookupFreeQuantization(nn.Module):
         inp = self.proj_inp(inp)
         
         # Split into n_codebook parts
-        inp = rearrange(inp, 'b n (c d) -> b n c d', c=self.n_codebook)
+        inp = rearrange(inp, 'b n (c d) -> b n c d', c=self.num_codebooks)
         
         # Quantize by simply assigning {-1, 1} to the input tensor depending on the sign
         # of the input tensor values. This is the lookup-free quantization step.

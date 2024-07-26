@@ -91,8 +91,8 @@ class LatentAction(nn.Module):
         
         # Build the quantization module
         self.quant = LookupFreeQuantization(
-            d_codebook       = d_codebook,
-            n_codebook       = n_codebook,
+            codebook_dim       = d_codebook,
+            num_codebook       = n_codebook,
             use_bias         = lfq_bias,
             frac_sample      = lfq_frac_sample,
             commit_weight    = lfq_commit_weight,

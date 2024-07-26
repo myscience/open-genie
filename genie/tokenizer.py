@@ -160,21 +160,35 @@ MAGVIT2_DEC_DESC = (
 )
 
 REPR_TOK_ENC = (
+    ('spacetime_downsample', {
+        'in_channels' : 3,
+        'kernel_size' : 3,
+        'out_channels' : 512,
+        'time_factor' : 1,
+        'space_factor' : 4,
+    }),
     ('space-time_attn', {
         'n_rep' : 8,
-        'n_embd' : 512,
         'n_head': 8,
         'd_head': 64,
+        'transpose' : True,
     }),
 )
 
 REPR_TOK_DEC = (
     ('space-time_attn', {
         'n_rep' : 8,
-        'n_embd' : 512,
         'n_head': 8,
         'd_head': 64,
+        'transpose' : True,
     }),
+    ('depth2spacetime_upsample', {
+        'in_channels' : 512,
+        'kernel_size' : 3,
+        'out_channels' : 3,
+        'time_factor' : 1,
+        'space_factor' : 4,
+    })
 )
 
 def get_enc(name : str) -> Blueprint:
@@ -247,8 +261,8 @@ class VideoTokenizer(LightningModule):
         
         # Build the quantization module
         self.quant = LookupFreeQuantization(
-            d_codebook       = d_codebook,
-            n_codebook       = n_codebook,
+            codebook_dim     = d_codebook,
+            num_codebook     = n_codebook,
             input_dim        = last_enc_dim,
             use_bias         = lfq_bias,
             frac_sample      = lfq_frac_sample,
