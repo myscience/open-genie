@@ -22,12 +22,12 @@ from genie.module import parse_blueprint
 OptimizerCallable = Callable[[Iterable], Optimizer]
 
 MAGVIT2_ENC_DESC = (
-    ('causal', {
+    ('causal-conv3d', {
         'in_channels': 3,
         'out_channels': 128,
         'kernel_size': 3,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 4,
         'in_channels': 128,
     }),
@@ -38,11 +38,11 @@ MAGVIT2_ENC_DESC = (
         'time_factor': 1,
         'space_factor': 2,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 128,
         'out_channels': 256,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 3,
         'in_channels': 256,
     }),
@@ -53,7 +53,7 @@ MAGVIT2_ENC_DESC = (
         'time_factor': 2,
         'space_factor': 2,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 4,
         'in_channels': 256,
     }),
@@ -64,97 +64,110 @@ MAGVIT2_ENC_DESC = (
         'time_factor': 2,
         'space_factor': 2,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 256,
         'out_channels': 512,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 7,
         'in_channels': 512,
     }),
-    ('proj_out', {
-        'in_channels': 512,
-        'out_channels': 128,
+    ('group_norm', {
         'num_groups': 8,
-        'kernel_size': 3,
+        'num_channels': 512,
+    }),
+    ('silu', {}),
+    ('causal-conv3d', {
+        'in_channels': 512,
+        'out_channels': 18,
+        'kernel_size': 1,
     })
 )
 
 MAGVIT2_DEC_DESC = (
-    ('causal', {
+    ('causal-conv3d', {
         'in_channels': 18,
         'out_channels': 512,
         'kernel_size': 3,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 4,
         'in_channels': 512,
     }),
     ('adaptive_group_norm', {
+        'dim_cond' : 18,
         'num_groups': 8,
         'num_channels': 512,
         'has_ext' : True,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 4,
         'in_channels': 512,
     }),
-    ('spacetime_upsample', {
+    ('depth2spacetime_upsample', {
         'in_channels': 512,
         'kernel_size': 3,
         'time_factor': 2,
         'space_factor': 2,
     }),
     ('adaptive_group_norm', {
+        'dim_cond' : 18,
         'num_groups': 8,
         'num_channels': 512,
         'has_ext' : True,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 512,
         'out_channels': 256,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep': 3,
         'in_channels': 256,
     }),
-    ('spacetime_upsample', {
+    ('depth2spacetime_upsample', {
         'in_channels': 256,
         'kernel_size': 3,
         'time_factor': 2,
         'space_factor': 2,
     }),
     ('adaptive_group_norm', {
+        'dim_cond' : 18,
         'num_groups': 8,
         'num_channels': 256,
         'has_ext' : True,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep' : 4,
         'in_channels': 256,
     }),
-    ('spacetime_upsample', {
+    ('depth2spacetime_upsample', {
         'in_channels': 256,
         'kernel_size': 3,
         'time_factor': 1,
         'space_factor': 2,
     }),
     ('adaptive_group_norm', {
+        'dim_cond' : 18,
         'num_groups': 8,
         'num_channels': 256,
+        'has_ext' : True,
     }),
-    ('residual', {
+    ('video-residual', {
         'in_channels': 256,
         'out_channels': 128,
     }),
-    ('residual', {
+    ('video-residual', {
         'n_rep' : 3,
         'in_channels': 128,
     }),
-    ('proj_out', {
+    ('group_norm', {
+        'num_groups': 8,
+        'num_channels': 128,
+    }),
+    ('silu', {}),
+    ('causal-conv3d', {
         'in_channels': 128,
         'out_channels': 3,
-        'num_groups': 8,
         'kernel_size': 3,
     })
 )

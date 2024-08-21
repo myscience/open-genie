@@ -52,8 +52,19 @@ def get_module(name : str) -> nn.Module:
         case 'spacetime_downsample':
             return SpaceTimeDownsample
         # * Norm modules
+        case 'group_norm':
+            return nn.GroupNorm
         case 'adaptive_group_norm':
             return AdaptiveGroupNorm
+        # * Activation modules
+        case 'gelu':
+            return nn.GELU
+        case 'relu':
+            return nn.ReLU
+        case 'leaky_relu':
+            return nn.LeakyReLU
+        case 'silu':
+            return nn.SiLU
         case _:
             raise ValueError(f'Unknown module name: {name}')
         

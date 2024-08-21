@@ -9,6 +9,9 @@ from genie.dataset import LightningPlatformer2D
 from genie.tokenizer import REPR_TOK_ENC
 from genie.tokenizer import REPR_TOK_DEC
 
+from genie.tokenizer import MAGVIT2_ENC_DESC
+from genie.tokenizer import MAGVIT2_DEC_DESC
+
 TEST_ENC_DESC = (
     ('causal-conv3d', {
         'in_channels': 3,
@@ -121,17 +124,17 @@ class TestVideoTokenizer(unittest.TestCase):
         self.num_channels = 3
         self.img_h, self.img_w = 64, 64
         
-        # Number of channels after the encoding by the REPR_TOK_ENC
-        self.hid_channels = 512
+        # Number of channels after the encoding by the MAGVIT2
+        self.hid_channels = 18
         
-        self.time_down  = 1 # This parameters are determined by REPR_TOK_ENC
-        self.space_down = 4 # This parameters are determined by REPR_TOK_ENC
-        
-        factor = 4
+        self.time_down  = 4 # This parameters are determined by MAGVIT2
+        self.space_down = 8 # This parameters are determined by MAGVIT2
         
         self.tokenizer = VideoTokenizer(
-            enc_desc = REPR_TOK_ENC,
-            dec_desc = REPR_TOK_DEC,
+            # enc_desc = REPR_TOK_ENC,
+            # dec_desc = REPR_TOK_DEC,
+            enc_desc = MAGVIT2_ENC_DESC,
+            dec_desc = MAGVIT2_DEC_DESC,
             
             disc_kwargs=dict(
                 # Discriminator parameters
