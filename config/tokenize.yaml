@@ -34,8 +34,8 @@ model:
   perc_feat_layers: [features.6, features.13, features.18, features.25]
   gan_discriminate: frames
   gan_frames_per_batch: 4
-  gan_loss_weight: 1.
-  perc_loss_weight: 1.
+  gan_loss_weight: 0
+  perc_loss_weight: 0
   quant_loss_weight: 1.
 
 data:

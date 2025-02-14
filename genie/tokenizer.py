@@ -364,11 +364,11 @@ class VideoTokenizer(LightningModule):
         rec_loss = mse_loss(rec_video, video)
         
         # GAN loss (if available)
-        gen_loss = self.gan_crit(rec_video, video, train_gen=True)
-        dis_loss = self.gan_crit(rec_video, video, train_gen=False)
+        gen_loss = self.gan_crit(rec_video, video, train_gen=True) if self.gan_loss_weight > 0 else 0
+        dis_loss = self.gan_crit(rec_video, video, train_gen=False) if self.gan_loss_weight > 0 else 0
         
         # Perceptual loss (if available)
-        perc_loss = self.perc_crit(rec_video, video)
+        perc_loss = self.perc_crit(rec_video, video) if self.perc_loss_weight > 0 else 0
         
         # Compute the total loss by combining the individual
         # losses, weighted by the corresponding loss weights
