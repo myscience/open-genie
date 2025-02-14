@@ -265,6 +265,18 @@ new_tokens = dynamics.generate(
 assert new_tokes.shape == (batch_size, num_frame + 1, img_size, img_size)
 ```
 
+## Coinrun dataset
+
+To generate training data based on the coinrun gym environment:
+
+```sh
+> python ./sample.py --root dataset --num_envs=45 --timeout=1000 
+```
+
+This will produce 45 videos, each with 1000 frames. Each video corresponds to 1 episode in the coinrun environment with random actions.
+By default, this is stored in the folder `dataset/Coinrun` but for training, the videos need to be split into 3 sub-folders `train`, `test`, `val`.
+This needs to be done manually.
+
 # Roadmap
 
 - [x] Implement the video-tokenizer. Use the MagViT-2 tokenizer as described in [Yu et al., (2023)](https://magvit.cs.cmu.edu/v2/).

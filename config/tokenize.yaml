@@ -39,7 +39,7 @@ model:
   quant_loss_weight: 1.
 
 data:
-  root: path/to/data
+  root: dataset
   env_name: Coinrun
   padding: none
   randomize: true
