@@ -234,8 +234,8 @@ class VideoTokenizer(LightningModule):
     
     def __init__(
         self,
-        enc_desc : Blueprint,
-        dec_desc : Blueprint,
+        enc_desc : Blueprint = REPR_TOK_ENC,
+        dec_desc : Blueprint = REPR_TOK_DEC,
         disc_kwargs : Dict[str, Any] = {},
         # Lookup-Free Quantization parameters
         d_codebook : int = 18,
