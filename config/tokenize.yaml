@@ -3,7 +3,7 @@ seed_everything: 31415
 model:
   disc_kwargs:
     inp_size: [64, 64] # Size of input frames
-    model_dim: 64 # Dimension of the model
+    model_dim: 32 # Dimension of the model
     dim_mults: [1, 2, 4] # Channel multipliers
     down_step: [null, 2, 2] # Down-sampling steps
     inp_channels: 3
@@ -44,19 +44,19 @@ data:
   padding: none
   randomize: true
   transform: null
-  num_frames: 64
-  batch_size: 32
+  num_frames: 4
+  batch_size: 1
   output_format: c t h w
 
 trainer:
-  max_epochs: 40
+  max_epochs: 1
   accelerator: gpu
   devices: 1
   strategy: ddp_find_unused_parameters_false
   precision: 16-mixed
   log_every_n_steps: 16
-  limit_val_batches: 32
-  val_check_interval: 32
+  limit_val_batches: 1
+  val_check_interval: 1
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
